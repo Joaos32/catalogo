@@ -1,0 +1,19 @@
+# backend framework
+fastapi
+uvicorn[standard]
+httpx
+
+# HTTP utilities
+requests
+
+# Microsoft Graph auth
+msal
+
+# data handling
+pandas
+openpyxl
+
+# testing
+pytest
+
+# add any additional libraries for OneDrive and spreadsheet access
