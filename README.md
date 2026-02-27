@@ -184,6 +184,16 @@ A funcionalidade de fotos depende da API do Microsoft Graph. Para habilitá-la:
    ```
    Retornará um JSON com as URLs das imagens correspondentes.
 
+Além disso, existe um endpoint mais específico para obtenção de imagens de um
+produto já conhecido. Ele é útil quando a lógica de frontend já possui o
+código do item e precisa buscar todas as variantes ordenadas:
+
+```sh
+curl "http://127.0.0.1:5000/catalog/produtos/6649/imagens?shareUrl=https://1drv.ms/f/c/..."
+```
+
+A resposta inclui o campo `codigo` e um array `imagens` com os mesmos objetos
+usados por `/catalog/photos` (cada objeto contém `name`, `variant` e `url`).
 ## Próximos passos
 
 - Manuseio de erros e caching.
