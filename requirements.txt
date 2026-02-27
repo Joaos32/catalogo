@@ -3,6 +3,9 @@ fastapi
 uvicorn[standard]
 httpx
 
+# environment variables
+python-dotenv
+
 # HTTP utilities
 requests
 

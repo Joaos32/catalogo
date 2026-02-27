@@ -43,11 +43,10 @@ async def photos(shareUrl: str | None = None, code: str | None = None):
         items = list_shared_items(shareUrl)
         cats = categorize_photos(items, code=code)
         return cats
-    except EnvironmentError as e:
-        # expected when Azure credentials are not configured; return a set of
-        # placeholder URLs so that the frontend can still render and you can
-        # verify the image layout. The actual product photos require a valid
-        # Graph token and will be available once credentials are supplied.
+    # the graph client/auth helpers may throw either EnvironmentError or
+    # ValueError when configuration is missing or invalid; treat both as a
+    # non-fatal "photos disabled" scenario so front-end can use placeholders.
+    except (EnvironmentError, ValueError) as e:
         print(f"Photos disabled (environment issue): {e}")
         traceback.print_exc()
         demo = {
@@ -61,5 +60,25 @@ async def photos(shareUrl: str | None = None, code: str | None = None):
         return demo
     except Exception as e:
         print(f"Error fetching photos: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get('/produtos/{codigo}/imagens')
+async def product_images(codigo: str, shareUrl: str | None = None):
+    """Return all image variants for a given product code.
+
+    Query parameters:
+        shareUrl: public share link for the root OneDrive folder (required)
+    """
+    if not shareUrl:
+        return JSONResponse(status_code=400, content={"error": "missing shareUrl query parameter"})
+    try:
+        from .onedrive import find_images_for_code
+
+        images = find_images_for_code(shareUrl, codigo)
+        return {"codigo": codigo, "imagens": images}
+    except Exception as e:
+        print(f"Error searching images: {e}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})

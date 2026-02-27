@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import sys
+from dotenv import load_dotenv
+
+# load .env early (auth module also does this, but load here for completeness)
+load_dotenv()
 
 # log which python interpreter is running the app
 print(f"[startup] using python executable: {sys.executable}")
@@ -27,11 +31,27 @@ else:
 
 # import and include API router before static mount
 from catalog.routes import router as catalog_router
+from catalog.auth import auth_router
+
+app.include_router(auth_router)
 app.include_router(catalog_router, prefix="/catalog")
 
-# serve frontend static files; html=True makes index.html the fallback
-# the router is mounted first so any /catalog/* request is handled by the API
-app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
+# serve frontend files manually to avoid swallowing API routes
+# the API routers are included above, so they take precedence over these
+from fastapi.responses import FileResponse
+import os
+
+@app.get("/")
+def index():
+    return FileResponse(os.path.join("frontend", "index.html"))
+
+@app.get("/{full_path:path}")
+def spa(full_path: str):
+    # if the requested file exists under frontend, serve it; otherwise return index
+    full_path = os.path.join("frontend", full_path)
+    if os.path.exists(full_path) and os.path.isfile(full_path):
+        return FileResponse(full_path)
+    return FileResponse(os.path.join("frontend", "index.html"))
 
 if __name__ == "__main__":
     # using uvicorn to start the ASGI server

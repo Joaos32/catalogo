@@ -47,3 +47,21 @@ def test_photos_no_credentials(monkeypatch):
     assert 'white_background' in data and 'ambient' in data and 'measures' in data
     assert 'y' in data['white_background']
     assert data['white_background'].startswith('https://placehold.co/')
+
+
+def test_product_images_route(monkeypatch):
+    # simulate onedrive response
+    monkeypatch.setattr('catalog.onedrive.find_images_for_code', lambda shareUrl, code: [
+        {'name': f'{code}.jpg', 'variant': 0, 'url': 'u1'},
+        {'name': f'{code}-1.png', 'variant': 1, 'url': 'u2'},
+    ])
+    client = TestClient(app)
+    rv = client.get('/catalog/produtos/6649/imagens', params={'shareUrl': 'https://fake'})
+    assert rv.status_code == 200
+    data = rv.json()
+    assert data['codigo'] == '6649'
+    assert len(data['imagens']) == 2
+    assert data['imagens'][1]['variant'] == 1
+    # missing shareUrl parameter should return 400
+    rv2 = client.get('/catalog/produtos/6649/imagens')
+    assert rv2.status_code == 400
