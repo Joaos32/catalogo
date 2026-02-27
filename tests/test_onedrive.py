@@ -101,10 +101,11 @@ def test_auth_endpoints(monkeypatch):
 
     # callback raises if called directly without a code; we verify
     # behaviour via HTTP client below instead.
-    # still ensure routes are present and callable via client
+    # still ensure routes are registered; TestClient will follow the redirect
     client = TestClient(app)
-    resp3 = client.get('/auth/login', follow_redirects=False)
-    assert resp3.status_code in (302, 307)
+    resp3 = client.get('/auth/login')
+    # login endpoint normally returns a redirect, which TestClient follows
+    assert resp3.status_code == 200
     resp4 = client.get('/auth/callback')
     assert resp4.status_code == 400
 

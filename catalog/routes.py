@@ -21,7 +21,17 @@ async def sheet_data(url: str | None = None):
     try:
         df = fetch_sheet(url)
         return df.to_dict(orient='records')
+    except ValueError as e:
+        # a ValueError usually means the sheet isn't public or URL is wrong.
+        # instead of returning HTTP 500 (which triggers the front‑end error
+        # banner every time), return an empty list so the React app simply
+        # continues using demo data quietly.
+        print(f"Sheet fetch failed, using demo data: {e}")
+        traceback.print_exc()
+        return []
     except Exception as e:
+        # all other failures are unexpected; keep returning 500 so they are
+        # visible during development/QA.
         print(f"Error fetching sheet: {e}")
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
