@@ -8,6 +8,7 @@ python-dotenv
 
 # HTTP utilities
 requests
+beautifulsoup4
 
 # Microsoft Graph auth
 msal
@@ -15,6 +16,7 @@ msal
 # data handling
 pandas
 openpyxl
+Pillow
 
 # testing
 pytest

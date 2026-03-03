@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 import sys
 from dotenv import load_dotenv
 
@@ -41,17 +40,36 @@ app.include_router(catalog_router, prefix="/catalog")
 from fastapi.responses import FileResponse
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+INDEX_FILE = os.path.join(FRONTEND_DIR, "index.html")
+
+
+def _resolve_frontend_file(path: str) -> str | None:
+    """Resolve a frontend file path and reject traversal outside frontend/."""
+    candidate = os.path.abspath(os.path.join(FRONTEND_DIR, path))
+    try:
+        within_frontend = os.path.commonpath([FRONTEND_DIR, candidate]) == FRONTEND_DIR
+    except ValueError:
+        return None
+    if not within_frontend:
+        return None
+    if os.path.isfile(candidate):
+        return candidate
+    return None
+
+
 @app.get("/")
 def index():
-    return FileResponse(os.path.join("frontend", "index.html"))
+    return FileResponse(INDEX_FILE)
 
 @app.get("/{full_path:path}")
 def spa(full_path: str):
     # if the requested file exists under frontend, serve it; otherwise return index
-    full_path = os.path.join("frontend", full_path)
-    if os.path.exists(full_path) and os.path.isfile(full_path):
-        return FileResponse(full_path)
-    return FileResponse(os.path.join("frontend", "index.html"))
+    target = _resolve_frontend_file(full_path)
+    if target:
+        return FileResponse(target)
+    return FileResponse(INDEX_FILE)
 
 if __name__ == "__main__":
     # using uvicorn to start the ASGI server
