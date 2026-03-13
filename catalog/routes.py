@@ -1,28 +1,31 @@
 from io import BytesIO
 from pathlib import Path
-
-from fastapi.responses import JSONResponse, FileResponse, Response
 import traceback
 
+from fastapi import APIRouter, Body, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
+
 from .spreadsheet import fetch_sheet
-from . import catalog_router as router
+
+
+router = APIRouter()
 
 
 def _tiff_to_jpeg_bytes(asset_path: str) -> bytes | None:
-    """Convert TIFF files to JPEG bytes so browsers can render them reliably."""
+    """Converte formatos raster locais para bytes JPEG para compatibilidade no navegador."""
     ext = Path(asset_path).suffix.lower()
-    if ext not in {".tif", ".tiff"}:
+    if ext not in {".tif", ".tiff", ".psd", ".heic", ".heif"}:
         return None
 
     try:
         from PIL import Image
     except Exception:
-        # Pillow is optional; if unavailable, keep original response path.
+        # Pillow e opcional; se indisponivel, mantem resposta original.
         return None
 
     try:
         with Image.open(asset_path) as image:
-            # Flatten transparency onto white for JPEG compatibility.
+            # Achata transparencia sobre fundo branco para compatibilidade com JPEG.
             if image.mode in ("RGBA", "LA"):
                 background = Image.new("RGB", image.size, (255, 255, 255))
                 alpha = image.split()[-1]
@@ -45,7 +48,7 @@ async def list_items():
 
 @router.get("/sheet")
 async def sheet_data(url: str | None = None):
-    """Return JSON data from a Google Sheet specified by query parameter `url`."""
+    """Retorna dados JSON de uma planilha Google via parametro de consulta `url`."""
     if not url:
         return JSONResponse(status_code=400, content={"error": "missing url query parameter"})
     try:
@@ -72,7 +75,7 @@ async def sheet_data(url: str | None = None):
 
 @router.get("/photos")
 async def photos(shareUrl: str | None = None, code: str | None = None):
-    """Return categorized photo URLs from local OneDrive or Microsoft Graph."""
+    """Retorna URLs de fotos categorizadas do OneDrive local ou Microsoft Graph."""
     if code:
         try:
             from .onedrive import categorize_local_photos, resolve_local_products_root
@@ -80,8 +83,8 @@ async def photos(shareUrl: str | None = None, code: str | None = None):
             local_photos = categorize_local_photos(code=code)
             if any(local_photos.values()):
                 return local_photos
-            # If a local products root exists, stay in local mode and avoid Graph
-            # calls when Azure credentials are not configured.
+            # Se existir raiz local de produtos, permanece em modo local e evita
+            # chamadas ao Graph quando as credenciais Azure nao estiverem configuradas.
             if resolve_local_products_root():
                 return local_photos
         except Exception as local_exc:
@@ -114,7 +117,7 @@ async def photos(shareUrl: str | None = None, code: str | None = None):
 
 @router.get("/local/produtos")
 async def local_products():
-    """Return products discovered from the local OneDrive folder."""
+    """Retorna produtos encontrados na pasta local do OneDrive."""
     try:
         from .onedrive import list_local_products
 
@@ -125,9 +128,128 @@ async def local_products():
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@router.post("/erp/import")
+async def import_erp_products(payload: dict | list = Body(...)):
+    """Importa um payload JSON do ERP e atualiza o espelho de produtos por codigo."""
+    try:
+        from .erp_catalog import import_erp_payload
+
+        return import_erp_payload(payload)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        print(f"Error importing ERP payload: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/erp/upload")
+async def upload_erp_file(request: Request, filename: str | None = None):
+    """Recebe um arquivo JSON bruto no corpo da requisicao e importa para o catalogo."""
+    try:
+        body = await request.body()
+        if not body:
+            return JSONResponse(status_code=400, content={"error": "empty request body"})
+
+        selected_name = (
+            filename
+            or request.headers.get("x-file-name")
+            or request.headers.get("x-filename")
+            or "erp_upload.json"
+        )
+
+        from .erp_catalog import receive_erp_file
+
+        return receive_erp_file(filename=selected_name, content=body)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        print(f"Error uploading ERP file: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/erp/import-file")
+async def import_erp_file_from_backend(payload: dict = Body(...)):
+    """Importa um arquivo JSON ja depositado no backend."""
+    try:
+        file_path = str(payload.get("file_path") or payload.get("path") or "").strip()
+        if not file_path:
+            return JSONResponse(status_code=400, content={"error": "missing file_path"})
+
+        from .erp_catalog import import_erp_file
+
+        return import_erp_file(file_path)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        print(f"Error importing ERP file from backend: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/erp/files")
+async def list_backend_erp_files():
+    """Lista os arquivos JSON do ERP encontrados na infraestrutura local do backend."""
+    try:
+        from .erp_catalog import list_erp_files
+
+        return {"files": list_erp_files()}
+    except Exception as e:
+        print(f"Error listing ERP files: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/erp/status")
+async def erp_status():
+    """Retorna status da carga JSON do ERP utilizada para enriquecer o catalogo."""
+    try:
+        from .erp_catalog import get_erp_status
+
+        return get_erp_status()
+    except Exception as e:
+        print(f"Error reading ERP status: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/export")
+async def export_catalog(
+    format: str = "csv",
+    query: str | None = None,
+    category: str | None = None,
+    code: str | None = None,
+):
+    """Gera uma exportacao do catalogo em CSV, Excel, JSON, PDF ou ZIP."""
+    try:
+        from .exporter import build_catalog_export
+
+        payload, media_type, filename = build_catalog_export(
+            format_name=format,
+            query=str(query or "").strip(),
+            category=str(category or "").strip(),
+            code=str(code or "").strip(),
+        )
+        return Response(
+            content=payload,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        print(f"Error exporting catalog: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.get("/local/asset")
 async def local_asset(path: str | None = None):
-    """Serve a local image file from the configured OneDrive products folder."""
+    """Serve um arquivo de imagem local da pasta de produtos configurada no OneDrive."""
     if not path:
         return JSONResponse(status_code=400, content={"error": "missing path query parameter"})
     try:
@@ -150,7 +272,7 @@ async def local_asset(path: str | None = None):
 
 @router.get("/produtos/{codigo}/imagens")
 async def product_images(codigo: str, shareUrl: str | None = None):
-    """Return all image variants for a given product code."""
+    """Retorna todas as variacoes de imagem para um codigo de produto."""
     try:
         from .onedrive import find_local_images_for_code, resolve_local_products_root
 

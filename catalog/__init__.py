@@ -1,7 +1,17 @@
-from fastapi import APIRouter
+"""Exportacoes publicas do pacote de catalogo.
 
-# create a router that will be mounted under `/catalog` by the main app
-catalog_router = APIRouter()
+Nota de compatibilidade:
+`catalog_router` e mantido como alias para `catalog.routes.router` para que
+imports legados continuem funcionando com registro explicito de rotas.
+"""
 
-# import routes after defining the router so they can register themselves
-from . import routes
+from .routes import router as catalog_router
+
+
+def create_app():
+    from .bootstrap import create_app as _create_app
+
+    return _create_app()
+
+
+__all__ = ["create_app", "catalog_router"]

@@ -1,8 +1,0 @@
-cadastro_codes=1456
-catalog_codes=631
-missing_in_catalog=963
-extra_not_in_cadastro=138
-common_codes=493
-output_missing_csv=d:\Catalogo\reports\cadastro_missing_in_catalog.csv
-output_extra_csv=d:\Catalogo\reports\catalog_extra_not_in_cadastro.csv
-output_common_csv=d:\Catalogo\reports\cadastro_common_enriched_preview.csv

@@ -1,4 +1,4 @@
-"""Parse local CADASTRO.html exports and provide product info by code."""
+"""Processa exportacoes locais de CADASTRO.html e fornece dados por codigo."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def resolve_cadastro_path(path_override: str | None = None) -> str | None:
 
 
 def _repair_mojibake(value: str) -> str:
-    # Some exported files contain UTF-8 text interpreted as latin-1.
+    # Alguns arquivos exportados contem UTF-8 interpretado como latin-1.
     if not value or not any(marker in value for marker in ("Ã", "Â", "â")):
         return value
     try:

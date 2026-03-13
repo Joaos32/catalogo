@@ -5,27 +5,27 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from msal import ConfidentialClientApplication, SerializableTokenCache
 from dotenv import load_dotenv
 
-# load environment variables from .env if present
+# Carrega variaveis de ambiente do .env, se existir.
 load_dotenv()
 
-# constants / env
+# Constantes de ambiente.
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 REDIRECT_URI = os.getenv("AZURE_REDIRECT_URI")
 
-# determine whether we actually have usable credentials; a placeholder
-# string like "seu-tenant-id" or an empty value should disable auth.
+# Determina se as credenciais sao realmente utilizaveis; valores de placeholder
+# como "seu-tenant-id" ou vazios devem desabilitar a autenticacao.
 AUTH_CONFIGURED = all([CLIENT_ID, CLIENT_SECRET, TENANT_ID, REDIRECT_URI])
 if AUTH_CONFIGURED:
-    # simple sanity check against obvious dummy values
+    # Validacao simples para evitar valores ficticios evidentes.
     for val in (CLIENT_ID, CLIENT_SECRET, TENANT_ID):
         if "seu" in val.lower() or val.lower() == "none":
             AUTH_CONFIGURED = False
             break
 
 if not AUTH_CONFIGURED:
-    # authentication will be disabled; callers should handle EnvironmentError
+    # A autenticacao sera desativada; chamadores devem tratar EnvironmentError.
     AUTHORITY = None
 else:
     AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
@@ -33,13 +33,13 @@ else:
 SCOPES = ["Files.Read", "offline_access"]
 CACHE_FILE = os.path.join(os.getcwd(), "token_cache.bin")
 
-# token cache that persists to a file
+# Cache de token persistido em arquivo.
 token_cache = SerializableTokenCache()
 if os.path.exists(CACHE_FILE):
     try:
         token_cache.deserialize(open(CACHE_FILE, "r").read())
     except Exception:
-        # ignore corrupted cache
+        # Ignora cache corrompido.
         token_cache = SerializableTokenCache()
 
 
@@ -61,11 +61,11 @@ def _build_msal_app() -> ConfidentialClientApplication:
 
 
 def get_access_token(scopes: List[str] = SCOPES) -> str:
-    """Return a valid access token, acquiring silently or raising 401.
+    """Retorna um access token valido, adquirindo silenciosamente ou gerando 401.
 
-    If authentication is disabled (no credentials), raise OSError so the
-    caller can fall back to placeholders instead of spamming logs with MSAL
-    errors.
+    Se a autenticacao estiver desativada (sem credenciais), gera OSError para
+    que o chamador use fallback com placeholders em vez de poluir logs com
+    erros do MSAL.
     """
     if not AUTH_CONFIGURED:
         raise OSError("Azure credentials not configured")

@@ -15,7 +15,7 @@ def test_encode_share_url():
     url = "https://1drv.ms/f/c/abc123?e=xyz"
     encoded = _encode_share_url(url)
     assert encoded.startswith("u!")
-    # should not contain '='
+    # Nao deve conter '='.
     assert "=" not in encoded
 
 
@@ -31,7 +31,7 @@ def test_categorize_photos():
     assert cats["ambient"] == "http://example.com/a1"
     assert cats["measures"] == "http://example.com/m1"
 
-    # code filter
+    # Filtro por codigo.
     cats2 = categorize_photos(items, code="OTHER")
     assert cats2["white_background"] is None
     assert cats2["ambient"] is None
@@ -39,7 +39,7 @@ def test_categorize_photos():
 
 
 def test_match_and_find_images(monkeypatch):
-    # prepare fake graph client responses to simulate nested folders
+    # Prepara respostas falsas do Graph para simular pastas aninhadas.
     calls = {"share": 0, "children": 0}
 
     def fake_share_info(url):
@@ -63,7 +63,7 @@ def test_match_and_find_images(monkeypatch):
         else:
             return []
 
-    # apply patch directly to functions imported in onedrive module
+    # Aplica patch diretamente nas funcoes importadas no modulo onedrive.
     monkeypatch.setattr('catalog.onedrive.get_share_info', fake_share_info)
     monkeypatch.setattr('catalog.onedrive.list_children', fake_list_children)
 
@@ -75,7 +75,7 @@ def test_match_and_find_images(monkeypatch):
     assert imgs[1]['name'] == '6649-1.jpg' and imgs[1]['variant'] == 1
     assert imgs[2]['name'] == '6649_2.webp' and imgs[2]['variant'] == 2
 
-    # second call should hit cache; counts should not increase
+    # Segunda chamada deve usar cache; contadores nao devem aumentar.
     before = calls.copy()
     imgs2 = find_images_for_code('https://1drv.ms/fake', '6649')
     assert imgs2 == imgs
@@ -86,7 +86,7 @@ def test_auth_endpoints(monkeypatch):
     import os
     from fastapi.testclient import TestClient
 
-    # provide dummy env first so module-level constants may be set if needed
+    # Define ambiente ficticio para garantir constantes de modulo, se necessario.
     os.environ['AZURE_CLIENT_ID'] = 'id'
     os.environ['AZURE_CLIENT_SECRET'] = 'secret'
     os.environ['AZURE_TENANT_ID'] = 'tenant'
@@ -97,10 +97,10 @@ def test_auth_endpoints(monkeypatch):
             return "https://login.microsoftonline.com/fake"
     monkeypatch.setattr('catalog.auth._build_msal_app', lambda: DummyApp())
 
-    # import app after patching so router is registered normally
+    # Importa app apos patch para registrar rotas normalmente.
     from app import app
 
-    # rather than rely solely on routing, also verify handler logic
+    # Alem do roteamento, valida tambem a logica do handler.
     from catalog.auth import login, callback
     from fastapi.responses import RedirectResponse
 
@@ -108,12 +108,12 @@ def test_auth_endpoints(monkeypatch):
     assert isinstance(resp, RedirectResponse)
     assert resp.headers.get('location', '').startswith('https://login.microsoftonline.com')
 
-    # callback raises if called directly without a code; we verify
-    # behaviour via HTTP client below instead.
-    # still ensure routes are registered; TestClient will follow the redirect
+    # callback gera erro se chamado diretamente sem code; verificamos o
+    # comportamento via cliente HTTP abaixo.
+    # Garante tambem que as rotas estao registradas; o TestClient segue redirect.
     client = TestClient(app)
     resp3 = client.get('/auth/login')
-    # login endpoint normally returns a redirect, which TestClient follows
+    # Endpoint de login normalmente retorna redirect, que o TestClient segue.
     assert resp3.status_code == 200
     resp4 = client.get('/auth/callback')
     assert resp4.status_code == 400
@@ -169,6 +169,111 @@ def test_local_products_enriches_with_cadastro_for_default_runtime(monkeypatch, 
     assert item["Descricao"] == "Lâmpada LED Bulbo 7W A-60 Bivolt 3000K E27"
     assert item["Especificacoes"] == "CÓDIGO: 1580 | POTÊNCIA: 7W"
     assert item["Categoria"] == "LUM SOBREPOR"
+
+
+def test_local_products_fallbacks_to_stock_report(monkeypatch, tmp_path):
+    from openpyxl import Workbook
+
+    stock_report = tmp_path / "stock.xlsx"
+    stock_photos = tmp_path / "stock-photos"
+    stock_photos.mkdir(parents=True)
+    (stock_photos / "1181 - FITA LED.png").write_bytes(b"img")
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "POSICAO_ESTOQUE"
+    worksheet.append(["FILIAL", "CODIGO", "DESCRICAO", "EMB"])
+    worksheet.append([2, 2002, "LUMINARIA SPOT LS-001", "UND"])
+    worksheet.append([2, 1181, "FITA LED 2835 3000K 12V 5M", "UND"])
+    worksheet.append([2, 2002, "LUMINARIA DUPLICADA", "UND"])
+    workbook.save(stock_report)
+    workbook.close()
+
+    monkeypatch.setenv("CATALOG_STOCK_REPORT_PATH", str(stock_report))
+    monkeypatch.setenv("CATALOG_STOCK_PHOTOS_ROOT", str(stock_photos))
+    monkeypatch.delenv("CATALOG_LOCAL_PRODUCTS_PATH", raising=False)
+    monkeypatch.delenv("OneDrive", raising=False)
+    monkeypatch.delenv("OneDriveCommercial", raising=False)
+    monkeypatch.delenv("OneDriveConsumer", raising=False)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))
+
+    products = list_local_products()
+
+    assert [item["Codigo"] for item in products] == ["1181", "2002", "2002"]
+    assert products[0]["Nome"] == "FITA LED 2835 3000K 12V 5M"
+    assert products[0]["Categoria"] == "FITA LED"
+    assert products[1]["Nome"] == "LUMINARIA SPOT LS-001"
+    assert products[1]["Categoria"] == "LUMINARIA"
+    assert products[2]["Nome"] == "LUMINARIA DUPLICADA"
+    assert products[0]["URLFoto"].startswith("/catalog/local/asset?path=")
+    assert products[0]["FotoBranco"].startswith("/catalog/local/asset?path=")
+
+
+def test_stock_report_gallery_uses_stock_photos(monkeypatch, tmp_path):
+    from openpyxl import Workbook
+
+    stock_report = tmp_path / "stock.xlsx"
+    stock_photos = tmp_path / "stock-photos"
+    stock_photos.mkdir(parents=True)
+    (stock_photos / "1181 - FITA LED.png").write_bytes(b"img")
+    (stock_photos / "1181-2.png").write_bytes(b"img2")
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "POSICAO_ESTOQUE"
+    worksheet.append(["FILIAL", "CODIGO", "DESCRICAO", "EMB"])
+    worksheet.append([2, 1181, "FITA LED 2835 3000K 12V 5M", "UND"])
+    workbook.save(stock_report)
+    workbook.close()
+
+    monkeypatch.setenv("CATALOG_STOCK_REPORT_PATH", str(stock_report))
+    monkeypatch.setenv("CATALOG_STOCK_PHOTOS_ROOT", str(stock_photos))
+    monkeypatch.delenv("CATALOG_LOCAL_PRODUCTS_PATH", raising=False)
+    monkeypatch.delenv("OneDrive", raising=False)
+    monkeypatch.delenv("OneDriveCommercial", raising=False)
+    monkeypatch.delenv("OneDriveConsumer", raising=False)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))
+
+    images = find_local_images_for_code("1181")
+    assert len(images) == 2
+    assert all(image["url"].startswith("/catalog/local/asset?path=") for image in images)
+
+    photos = categorize_local_photos("1181")
+    assert photos["white_background"].startswith("/catalog/local/asset?path=")
+
+
+def test_stock_report_matches_photo_by_description(monkeypatch, tmp_path):
+    from openpyxl import Workbook
+
+    stock_report = tmp_path / "stock.xlsx"
+    stock_photos = tmp_path / "stock-photos"
+    stock_photos.mkdir(parents=True)
+    (stock_photos / "LUMINARIA SPOT LS-001 AMBIENTADA.psd").write_bytes(b"img")
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "POSICAO_ESTOQUE"
+    worksheet.append(["FILIAL", "CODIGO", "DESCRICAO", "EMB"])
+    worksheet.append([2, 2002, "LUMINARIA SPOT LS-001", "UND"])
+    workbook.save(stock_report)
+    workbook.close()
+
+    monkeypatch.setenv("CATALOG_STOCK_REPORT_PATH", str(stock_report))
+    monkeypatch.setenv("CATALOG_STOCK_PHOTOS_ROOT", str(stock_photos))
+    monkeypatch.delenv("CATALOG_LOCAL_PRODUCTS_PATH", raising=False)
+    monkeypatch.delenv("OneDrive", raising=False)
+    monkeypatch.delenv("OneDriveCommercial", raising=False)
+    monkeypatch.delenv("OneDriveConsumer", raising=False)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))
+
+    products = list_local_products()
+    assert len(products) == 1
+    assert products[0]["Codigo"] == "2002"
+    assert products[0]["URLFoto"].startswith("/catalog/local/asset?path=")
+
+    images = find_local_images_for_code("2002")
+    assert len(images) == 1
+    assert images[0]["url"].startswith("/catalog/local/asset?path=")
 
 
 def test_local_products_accept_tiff(tmp_path):

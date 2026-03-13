@@ -1,200 +1,178 @@
-# Catálogo Project
+# Catalogo de Produtos
 
-Este é um projeto Python para catalogar itens usando fotos do OneDrive e informações de uma planilha online.
+API em FastAPI + frontend React (Vite + TypeScript) para:
+- listar produtos locais (OneDrive/pasta local)
+- buscar dados de Google Sheets
+- servir imagens de produto
+- consultar imagens via Microsoft Graph (opcional)
 
-## Setup
+## Requisitos
+- Python 3.10+
+- Node.js 20+
+- `pip`
+- (Opcional) credenciais Azure para rotas Graph
 
-> O backend foi migrado para FastAPI; as instruções abaixo refletirão essa mudança.
-> ⚠️ **Python must be installed and available in your PATH.**
-1. Crie e ative um ambiente virtual (importante para evitar imports faltando):
-   ```sh
-   python -m venv venv
-   .\venv\Scripts\activate     # PowerShell
-   # ou: venv\Scripts\activate.bat  # CMD
-   ```
-2. Instale dependências:
-   ```sh
-   pip install -r requirements.txt
-   ```
+## Instalacao Rapida
 
-Se você não ativar o venv **e** usar um comando genérico como `py app.py`, o
-Python do sistema será utilizado. Isso acarretará erro de módulo ausente, já que
-as dependências estão instaladas apenas no ambiente virtual. Use um destes
-comandos dentro do venv:
-
+Backend:
 ```powershell
-cd d:\Catalogo
+python -m venv venv
 .\venv\Scripts\activate
-python app.py      # executa via uvicorn internamente
+pip install -r requirements.txt
 ```
 
-ou, quando quiser rodar diretamente o ASGI server:
-
+Frontend:
 ```powershell
-uvicorn app:app --reload      # recarrega automaticamente ao editar código
+cd frontend
+npm.cmd install
 ```
 
-Alternativamente você pode chamar explicitamente o interpretador do venv:
+## Executar em Desenvolvimento
 
+Terminal 1 (API):
 ```powershell
-& "d:\Catalogo\venv\Scripts\python.exe" app.py
+python app.py
 ```
 
-## Estrutura
-
-O frontend continua em `frontend/`, servido estaticamente pelo FastAPI.
-A API agora utiliza `fastapi` e a organização do pacote `catalog` não mudou.
-
-- `app.py`: aplicação FastAPI principal (substituiu o Flask). The file also mounts the `catalog` router and serves static frontend files.
-- `catalog/`: módulos do projeto.
-  - `spreadsheet.py`: utilitários para carregar Google Sheets
-  - `onedrive.py`: stubs para integração com OneDrive
-
-## Exemplos de uso
-
-Após iniciar o servidor (`python app.py` ou `uvicorn app:app`), você pode
-acessar endpoints (as rotas permanecem iguais às da versão Flask):
-
-- `GET /` – verifica se a API está no ar. O front-end React também é
-  servido aqui, mas a porta padrão agora é **8000** quando o servidor é
-  iniciado com uvicorn (ex. `http://127.0.0.1:8000/`).
-- `GET /catalog/sheet?url=<SHEET_URL>` – busca os dados de uma planilha pública do Google (observe que o blueprint está vinculado ao prefixo `/catalog`).
-  - Exemplo:
-    ```sh
-    curl "http://127.0.0.1:5000/catalog/sheet?url=https://docs.google.com/spreadsheets/d/14C-BtunMb82fYNwjsulbyqLgBFwrXbrzFh2XCdevvoM/edit?usp=sharing"
-    ```
-    O resultado será um JSON com as linhas da planilha.
-- `GET /catalog/photos` – retorna URLs categorizadas (fundo branco, ambientação, medidas) a partir de um link compartilhado e código de produto.
-
-
-## Frontend React (sem Node.js necessário)
-
-*A única diferença é a porta de operação do backend; CORS e comportamento da
-SPA continuam iguais.*
-
-### CORS e execução em portas distintas
-
-O FastAPI inclui o middleware CORSMiddleware, e `app.py` já o adiciona com
-`allow_origins=["*"]` se a dependência estiver instalada. As mesmas instruções
-de ativar o venv e garantir que o pacote `fastapi` (e `uvicorn`) estejam
-instalados continuam válidas.
-
-Se você servir `frontend/` com `python -m http.server 3000` ou outro servidor
-estático, o browser fará requisições para `http://127.0.0.1:8000` (backend). Isso
-é considerado "cross‑origin" e só funciona se o FastAPI retornar o cabeçalho
-`Access-Control-Allow-Origin`. O projeto adiciona automaticamente o
-`CORSMiddleware` quando o pacote está disponível no ambiente. **Por isso é
-crítico rodar o servidor usando o Python do venv onde `fastapi` e
-`uvicorn` foram instalados**; caso contrário o backend responderá sem o
-cabeçalho e o navegador bloqueará a requisição.
-
-Você pode testar manualmente com `curl`:
-
+Terminal 2 (frontend Vite):
 ```powershell
-curl -i -H "Origin: http://localhost:3000" \
-    "http://127.0.0.1:5000/catalog/sheet?url=<SHEET_URL>"
+cd frontend
+npm.cmd run dev
 ```
 
-Se o `flask-cors` estiver ativo, a resposta conterá:
-```
-Access-Control-Allow-Origin: *
-```
-Caso contrário, a linha estará ausente e o navegador recusará a requisição.
+Aplicacao disponivel em:
+- API: `http://127.0.0.1:8000`
+- Frontend dev: `http://127.0.0.1:5173`
 
----
-
-Os arquivos estáticos do front-end estão em `frontend/`. A aplicação React usa CDN
-para não precisar instalar Node/webpack. Para testar:
-
-```powershell
-python app.py    # inicia o servidor FastAPI via uvicorn (porta 8000 por padrão)
-# abra http://127.0.0.1:8000/ no navegador
-```
-
-Se preferir servir diretamente os arquivos sem o backend, inicie um servidor HTTP simples:
+## Build do Frontend para Servir no FastAPI
 
 ```powershell
 cd frontend
-py -m http.server 3000
-# acesse http://localhost:3000/ (o backend precisa estar em execução à parte em 8000)
+npm.cmd run build
 ```
 
-> ⚠️ **Importante**: nesse modo estático o front-end **não executa o servidor
-> Flask automaticamente**. Você precisa abrir outro terminal e iniciar o
-> backend (`python app.py` dentro do venv) para que as chamadas a
-> `/catalog/...` funcionem. Se o Flask não estiver em execução, o servidor
-> estático responderá com 404 (como mostrado no log que você enviou).
->
-> A aplicação tenta automaticamente usar `http://127.0.0.1:5000` quando detecta
-> que está em `localhost:3000`, mas isso só é útil se o Flask estiver ativo.
->
-> > 🤫 As versões mais recentes da interface não disparam mensagens vermelhas no
-> > console quando a planilha ou as fotos falham de carregar. Se o back-end não
-> > responder ou devolver um 500, ele é convertido em dados de demonstração ou em
-> > imagens de placeholder; assim você pode testar o layout sem ``noise`` do
-> > DevTools.
->
-> ➤ **Nota adicional**: sempre reinicie o servidor Flask após alterar o
-> código (por exemplo, ao modificar `routes.py` ou `onedrive.py`). Caso contrário
-> você continuará a ver erros antigos no console que já foram corrigidos (por
-> exemplo, o 500 Internal Server Error para fotos, que agora retorna placeholders).
-> Use `CTRL+C` no terminal onde o Flask roda e execute novamente `python app.py`.
+Quando `frontend/dist/index.html` existe, o FastAPI serve automaticamente o build.
+Se o build nao existir, a aplicacao usa fallback em `frontend/legacy`.
 
+## Variaveis de Ambiente
 
-A interface é responsiva e adequada para web, tablets e celulares.
+Config geral:
+- `CATALOG_HOST` (padrao: `127.0.0.1`)
+- `CATALOG_PORT` (padrao: `8000`)
+- `CATALOG_CORS_ALLOW_ORIGINS` (csv, padrao: `*`)
+- `CATALOG_CORS_ALLOW_CREDENTIALS` (padrao: `true`)
 
-### Fotos de Produto
+Frontend (Vite):
+- `VITE_API_BASES` (csv; padrao: `,http://127.0.0.1:8000,http://127.0.0.1:5000`)
+- `VITE_REQUEST_TIMEOUT_MS` (padrao: `12000`)
+- `VITE_DEV_PROXY_TARGET` (padrao: `http://127.0.0.1:8000`)
 
-Para que cada cartão faça download das imagens correspondentes, o front-end
-automaticamente consulta o endpoint `/catalog/photos` usando um link compartilhado
-da pasta do OneDrive (configurado no código em `app.js`). Ele passa o campo
-`Codigo` de cada produto, que deve existir na planilha ou ser gerado localmente
-como o `id`. As três categorias retornadas são exibidas como miniaturas abaixo do
-card (fundo branco, ambientação e medidas).
-## OneDrive (Microsoft Graph)
+Dados locais:
+- `CATALOG_LOCAL_PRODUCTS_PATH` (opcional, caminho explicito da pasta de produtos)
+- `CATALOG_CADASTRO_HTML` (opcional, caminho explicito do `CADASTRO.html`)
+- `CATALOG_ERP_JSON_PATH` (opcional, caminho do arquivo JSON espelho do ERP)
+- `CATALOG_ERP_INBOX_DIR` (opcional, pasta para armazenar arquivos recebidos em `/catalog/erp/upload`)
+- `CATALOG_ERP_SOURCE_DIRS` (opcional, lista CSV de pastas adicionais para descoberta automatica de JSON)
+- `CATALOG_ERP_STRICT_MODE` (opcional, padrao: `true`; quando ativo, o catalogo exibe somente codigos presentes no JSON ERP atual)
+  - Se nao informar, o backend tenta detectar automaticamente arquivos como `erp*.json` ou `pcprodut*.json` na raiz do projeto, em `reports/`, em `reports/erp_inbox` e em `catalog/json/`.
+  - Se `CATALOG_ERP_JSON_PATH` estiver configurado mas o arquivo nao existir, o backend faz fallback automatico para essa descoberta.
 
-A funcionalidade de fotos depende da API do Microsoft Graph. Para habilitá-la:
+Azure / Graph (opcional):
+- `AZURE_CLIENT_ID`
+- `AZURE_CLIENT_SECRET`
+- `AZURE_TENANT_ID`
+- `AZURE_REDIRECT_URI`
 
-1. Registre um app no [Azure Portal](https://portal.azure.com) e anote `client_id`,
-   `tenant_id` e gere um `client_secret`.
-2. Defina variáveis de ambiente no host:
-   ```powershell
-   $env:AZURE_CLIENT_ID = "..."
-   $env:AZURE_TENANT_ID = "..."
-   $env:AZURE_CLIENT_SECRET = "..."
-   ```
-   **Observação**: caso esses valores não estejam definidos o serviço ainda
-   iniciará e o endpoint `/catalog/photos` responderá com URLs de imagem de
-   placeholder em vez de lançar um erro de servidor. Isso permite testar o
-   layout e verificar os cartões mesmo sem acesso ao OneDrive; as fotos reais
-   aparecerão assim que as credenciais do Azure forem fornecidas.
+## Endpoints Principais
 
-3. Para um link de pasta compartilhada do OneDrive fornecido pela empresa, você
-   pode chamar o endpoint `/catalog/photos` passando `shareUrl` e (opcionalmente)
-   um `code` de produto. O servidor fará a seleção automática de até três fotos:
-   
-   - `white_background`: imagem com fundo branco (nome contém "branco"/"white")
-   - `ambient`: imagem em ambiente (nome contém "ambient"/"ambiente")
-   - `measures`: fundo branco com medidas (nome contém "medida"/"measure")
+API e frontend:
+- `GET /` (SPA/frontend)
+- `GET /catalog/sheet?url=<GOOGLE_SHEET_URL>`
+- `GET /catalog/photos?code=<CODIGO>&shareUrl=<ONEDRIVE_SHARE_URL>`
+- `GET /catalog/produtos/{codigo}/imagens?shareUrl=<ONEDRIVE_SHARE_URL>`
+- `GET /catalog/local/produtos`
+- `GET /catalog/local/asset?path=<CAMINHO_RELATIVO>`
+- `POST /catalog/erp/import` (importa JSON do ERP e atualiza os dados por codigo)
+- `POST /catalog/erp/upload?filename=<NOME_ARQUIVO>` (recebe JSON bruto no corpo da requisicao)
+- `POST /catalog/erp/import-file` (importa arquivo JSON ja depositado no backend)
+- `GET /catalog/erp/files` (lista arquivos JSON ERP encontrados)
+- `GET /catalog/erp/status` (status da carga ERP atual)
 
-   Exemplo de uso:
-   ```sh
-   curl "http://127.0.0.1:5000/catalog/photos?shareUrl=https://1drv.ms/f/c/..." \
-        -G --data-urlencode "code=XYZ123"
-   ```
-   Retornará um JSON com as URLs das imagens correspondentes.
+Autenticacao:
+- `GET /auth/login`
+- `GET /auth/callback`
 
-Além disso, existe um endpoint mais específico para obtenção de imagens de um
-produto já conhecido. Ele é útil quando a lógica de frontend já possui o
-código do item e precisa buscar todas as variantes ordenadas:
+## Importacao JSON do ERP
 
-```sh
-curl "http://127.0.0.1:5000/catalog/produtos/6649/imagens?shareUrl=https://1drv.ms/f/c/..."
+O catalogo le o JSON do ERP diretamente no backend (sem upload na pagina web).
+Com `CATALOG_ERP_JSON_PATH` configurado para `D:/catalogo/pcprodut_20260309_115420.json`,
+os produtos sao enriquecidos automaticamente por `Codigo`, incluindo itens sem foto
+(com placeholder) e organizacao por categoria.
+Categorias tecnicas (`CODEPTO/CODSEC`) sao convertidas para nomes comerciais
+quando houver mapeamento configurado no backend.
+Atualmente o catalogo padroniza em grupos de negocio como:
+`ILUMINACAO DECORATIVA`, `ILUMINACAO TECNICA`, `ILUMINACAO EXTERNA E PUBLICA`,
+`LAMPADAS E FITAS`, `COMPONENTES E ACESSORIOS`, `UTILIDADES E OPERACAO`
+e `OUTROS ITENS ERP`.
+
+Se precisar importar manualmente um novo payload pela API:
+
+```powershell
+curl -X POST http://127.0.0.1:8000/catalog/erp/import `
+  -H "Content-Type: application/json" `
+  -d "{\"products\":[{\"codigo\":\"1234\",\"nome\":\"Produto ERP\",\"categoria\":\"PENDENTE\"}]}"
 ```
 
-A resposta inclui o campo `codigo` e um array `imagens` com os mesmos objetos
-usados por `/catalog/photos` (cada objeto contém `name`, `variant` e `url`).
-## Próximos passos
+Para receber um arquivo JSON bruto no backend (sem upload em formulario web):
 
-- Manuseio de erros e caching.
-- Adicionar autenticação/endpoints para uso no front‑end.
+```powershell
+curl -X POST "http://127.0.0.1:8000/catalog/erp/upload?filename=pcprodut_20260309_115420.json" `
+  -H "Content-Type: application/json" `
+  --data-binary "@D:/Catalogo/pcprodut_20260309_115420.json"
+```
+
+Para processar um arquivo ja depositado no servidor:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/catalog/erp/import-file" `
+  -H "Content-Type: application/json" `
+  -d "{\"file_path\":\"reports/pcprodut_20260309_115420.json\"}"
+```
+
+## Estrutura do Projeto
+```text
+.
+|-- app.py
+|-- frontend/
+|   |-- src/
+|   |-- public/
+|   |-- legacy/
+|   `-- dist/ (gerado no build)
+|-- catalog/
+|   |-- bootstrap.py
+|   |-- auth.py
+|   |-- routes.py
+|   |-- onedrive.py
+|   |-- spreadsheet.py
+|   |-- cadastro.py
+|   |-- cache.py
+|   |-- graph_client.py
+|   |-- api/
+|   |   |-- __init__.py
+|   |   |-- router.py
+|   |   `-- frontend.py
+|   `-- core/
+|       |-- __init__.py
+|       `-- settings.py
+`-- tests/
+```
+
+## Testes
+```powershell
+pytest -q
+```
+
+## Observacoes
+- O frontend principal usa React Router + TanStack Query.
+- O frontend legado permanece em `frontend/legacy` como fallback.
+- Se credenciais Azure nao estiverem configuradas, rotas de fotos podem operar em modo local/alternativo.

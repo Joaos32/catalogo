@@ -1,4 +1,4 @@
-"""Quick script to verify CORS headers from the backend."""
+"""Script rapido para verificar cabecalhos CORS do servidor."""
 import requests
 import sys
 
@@ -14,7 +14,7 @@ def main():
         return
     print("status", resp.status_code)
     for k, v in resp.headers.items():
-        if k.lower().startswith("access-control") or k.lower().startswith("access"):  # print a few
+        if k.lower().startswith("access-control") or k.lower().startswith("access"):  # mostra alguns
             print(f"{k}: {v}")
 
 if __name__ == "__main__":

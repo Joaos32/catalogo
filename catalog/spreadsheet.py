@@ -1,6 +1,6 @@
-"""Utilities to access online spreadsheet data.
+"""Utilitarios para acessar dados de planilhas online.
 
-Currently supports public Google Sheets by exporting as CSV.
+Atualmente suporta Google Sheets publicas por exportacao em CSV.
 """
 
 import re
@@ -10,8 +10,8 @@ from urllib.parse import urlparse, parse_qs
 
 
 def _extract_sheet_id(url: str) -> str:
-    """Return the sheet ID from a Google Sheets URL."""
-    # example: https://docs.google.com/spreadsheets/d/ID/edit...
+    """Retorna o ID da planilha a partir de uma URL do Google Sheets."""
+    # Exemplo: https://docs.google.com/spreadsheets/d/ID/edit...
     m = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
     if not m:
         raise ValueError("Invalid Google Sheets URL")
@@ -19,14 +19,14 @@ def _extract_sheet_id(url: str) -> str:
 
 
 def fetch_sheet(sheet_url: str) -> pd.DataFrame:
-    """Fetch data from a (public) Google Sheet and return as DataFrame.
+    """Busca dados de uma Google Sheet (publica) e retorna como DataFrame.
 
-    Args:
-        sheet_url: full URL to the spreadsheet.
+    Parametros:
+        sheet_url: URL completa da planilha.
 
-    Raises:
-        ValueError: if the URL is not a valid Google Sheets link.
-        requests.HTTPError: if fetching the CSV fails.
+    Excecoes:
+        ValueError: se a URL nao for um link valido do Google Sheets.
+        requests.HTTPError: se a busca do CSV falhar.
     """
     sheet_id = _extract_sheet_id(sheet_url)
     export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
@@ -43,7 +43,7 @@ def fetch_sheet(sheet_url: str) -> pd.DataFrame:
             "The sheet may not be public or the URL may be invalid."
         )
     
-    # pandas can read from a StringIO
+    # O pandas consegue ler diretamente de um StringIO.
     from io import StringIO
     try:
         return pd.read_csv(StringIO(resp.text))

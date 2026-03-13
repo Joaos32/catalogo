@@ -14,7 +14,7 @@ class TTLCache:
             if expiry > time.time():
                 return value
             else:
-                # expired
+                # Expirado.
                 self.store.pop(key, None)
         return None
 
@@ -22,14 +22,14 @@ class TTLCache:
         self.store[key] = (value, time.time() + self.ttl)
 
 
-# global cache instance, TTL can be adjusted via environment
+# Instancia global de cache; TTL pode ser ajustado por ambiente.
 cache = TTLCache()
 
 
 def cached(func: Callable) -> Callable:
-    """Decorator that caches function results in the module-level TTLCache.
+    """Decorador que armazena resultados de funcoes no TTLCache do modulo.
 
-    The key is constructed from the function name and its arguments.
+    A chave e construida pelo nome da funcao e seus argumentos.
     """
 
     def wrapper(*args, **kwargs):

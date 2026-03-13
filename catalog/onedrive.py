@@ -1,4 +1,4 @@
-"""Utilities to interact with OneDrive using Microsoft Graph and local folders."""
+"""Utilitarios para integrar OneDrive via Microsoft Graph e pastas locais."""
 
 import os
 import re
@@ -22,17 +22,42 @@ PARENTHESIZED_VARIANT_SUFFIX_PATTERN = re.compile(r"\((?P<variant>\d{1,3})\)\s*$
 LEGACY_NUMERIC_VARIANT_PATTERN = re.compile(r"^[-_]\s*(?P<variant>\d{1,3})\s*$")
 CATEGORY_STOP_TOKENS = {"C", "COM"}
 CATEGORY_TRIM_TAIL_TOKENS = {"C", "COM", "DE", "DA", "DO", "DOS", "DAS", "E"}
+STOCK_REPORT_SHEET_NAME = "POSICAO_ESTOQUE"
+NO_PHOTO_COVER_URL = "https://placehold.co/900x700?text=Sem+Imagem"
+NO_PHOTO_THUMB_URL = "https://placehold.co/240x240?text=Sem+foto"
+STOCK_PHOTO_EXTENSIONS = IMG_EXTENSIONS + (".psd",)
+FOUR_DIGIT_CODE_PATTERN = re.compile(r"(?<!\d)(?P<code>\d{4})(?!\d)")
+DESCRIPTION_MODEL_TOKEN_PATTERN = re.compile(
+    r"\b[a-z0-9]+(?:[-_][a-z0-9]+)+\b|\b[a-z]{1,5}\d{2,}[a-z0-9-]*\b",
+    re.IGNORECASE,
+)
+DESCRIPTION_TOKEN_STOPWORDS = {
+    "para",
+    "com",
+    "sem",
+    "de",
+    "da",
+    "do",
+    "das",
+    "dos",
+    "led",
+    "bivolt",
+    "branco",
+    "preto",
+    "und",
+    "kit",
+}
 
 
 def _encode_share_url(url: str) -> str:
-    """Convert a OneDrive share URL into Graph "shares/{id}" syntax."""
+    """Converte uma URL compartilhada do OneDrive no formato Graph "shares/{id}"."""
     clean = url.split("?")[0]
     raw = base64.urlsafe_b64encode(clean.encode()).decode().rstrip("=")
     return f"u!{raw}"
 
 
 def list_shared_items(share_url: str):
-    """List *immediate* children of a shared folder."""
+    """Lista os filhos imediatos de uma pasta compartilhada."""
     try:
         info = get_share_info(share_url)
         drive_id = info.get("parentReference", {}).get("driveId")
@@ -45,7 +70,7 @@ def list_shared_items(share_url: str):
 
 
 def categorize_photos(items: list, code: str = None) -> dict:
-    """Return representative URLs matching criteria."""
+    """Retorna URLs representativas de fotos conforme criterios."""
     result = {"white_background": None, "ambient": None, "measures": None}
     for it in items:
         name = it.get("name", "").lower()
@@ -140,7 +165,7 @@ def _candidate_local_roots() -> List[str]:
             candidates.extend(_local_products_paths(one_drive_base))
         else:
             candidates.extend(_local_products_paths(base))
-    # last fallback when env vars are missing in the server process
+    # Ultima alternativa quando variaveis de ambiente faltam no processo do servidor.
     home = str(Path.home())
     if home:
         candidates.extend(_local_products_paths(os.path.join(home, "OneDrive")))
@@ -176,7 +201,7 @@ def _clean_product_name(candidate: str) -> str:
     cleaned = cleaned.strip(" -_")
     if not cleaned:
         return ""
-    # Keep only descriptive names; plain numeric suffixes are variants.
+    # Mantem apenas nomes descritivos; sufixos numericos simples sao variantes.
     if re.fullmatch(r"[1-4]", cleaned):
         return ""
     if re.fullmatch(r"\d+", cleaned):
@@ -319,7 +344,7 @@ def _extract_code_from_parts(parts: List[str]) -> tuple[str | None, str, str]:
     else:
         category = "Sem categoria"
 
-    # Priority: filename first (description usually there), then parent folders.
+    # Prioridade: nome do arquivo primeiro (geralmente contem descricao), depois pastas pai.
     filename_stem = Path(parts[-1]).stem if parts else ""
     ordered_segments = [filename_stem]
     ordered_segments.extend(reversed(parts[:-1]))
@@ -377,7 +402,7 @@ def _is_description_title(name: str, code: str) -> bool:
     detail = remainder[1:].strip()
     if not detail:
         return False
-    # Consider "5989-2.jpg" and similar numeric-only suffixes as non-descriptive.
+    # Considera "5989-2.jpg" e sufixos apenas numericos como nao descritivos.
     return not re.match(r"^\d+([._-]|$)", detail)
 
 
@@ -430,7 +455,7 @@ def _rel_path_in_allowed_roots(abs_path: str, roots: List[str]) -> str | None:
 
 
 def _resolve_shortcut_targets(scan_root: str) -> Dict[str, str]:
-    """Resolve .lnk files under scan_root to absolute target paths."""
+    """Resolve arquivos .lnk em scan_root para caminhos absolutos de destino."""
     if os.name != "nt":
         return {}
     if not scan_root or not os.path.isdir(scan_root):
@@ -587,7 +612,7 @@ def build_local_photo_index(root_path: str | None = None) -> Dict[str, Dict]:
 
 
 def _get_local_index(path_override: str | None = None) -> Dict[str, Dict]:
-    """Load local index from disk so folder edits are reflected immediately."""
+    """Carrega o indice local do disco para refletir alteracoes de pasta imediatamente."""
     roots = _existing_local_roots(path_override)
     if not roots:
         return {}
@@ -599,10 +624,483 @@ def _get_local_index(path_override: str | None = None) -> Dict[str, Dict]:
     return {}
 
 
+def _code_sort_key(code_value: str) -> tuple[int, int | str]:
+    code_text = str(code_value or "").strip()
+    if code_text.isdigit():
+        return (0, int(code_text))
+    return (1, code_text)
+
+
+def _candidate_stock_report_paths() -> List[str]:
+    candidates: List[str] = []
+    explicit = os.getenv("CATALOG_STOCK_REPORT_PATH")
+    if explicit:
+        candidates.append(os.path.abspath(explicit))
+
+    repo_root = Path(__file__).resolve().parents[1]
+    reports_dir = repo_root / "reports"
+    if reports_dir.is_dir():
+        workbooks = sorted(
+            reports_dir.glob("*.xlsx"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        for workbook in workbooks:
+            if workbook.name.startswith("~$"):
+                continue
+            candidates.append(str(workbook.resolve()))
+
+    deduped: List[str] = []
+    seen = set()
+    for candidate in candidates:
+        normalized = os.path.abspath(candidate)
+        key = normalized.lower()
+        if key in seen:
+            continue
+        deduped.append(normalized)
+        seen.add(key)
+    return deduped
+
+
+def _normalize_stock_code(raw_code: object) -> str | None:
+    if raw_code is None or isinstance(raw_code, bool):
+        return None
+
+    if isinstance(raw_code, int):
+        return str(raw_code)
+    if isinstance(raw_code, float):
+        if raw_code.is_integer():
+            return str(int(raw_code))
+        raw_text = str(raw_code).strip()
+    else:
+        raw_text = str(raw_code).strip()
+
+    if not raw_text:
+        return None
+    normalized = re.sub(r"\.0+$", "", raw_text)
+    direct_match = re.fullmatch(r"\d{3,8}", normalized)
+    if direct_match:
+        return direct_match.group(0)
+
+    generic_match = GENERIC_CODE_PATTERN.search(normalized)
+    if generic_match:
+        return generic_match.group("code")
+    return None
+
+
+def _placeholder_urls_for_code(code: str) -> tuple[str, str]:
+    safe_code = quote(str(code), safe="")
+    cover = f"{NO_PHOTO_COVER_URL}+{safe_code}"
+    thumb = f"{NO_PHOTO_THUMB_URL}+{safe_code}"
+    return cover, thumb
+
+
+def _resolve_stock_photos_root(path_override: str | None = None) -> str | None:
+    candidates: List[str] = []
+    if path_override:
+        candidates.append(path_override)
+
+    explicit = os.getenv("CATALOG_STOCK_PHOTOS_ROOT")
+    if explicit:
+        candidates.append(explicit)
+
+    home = str(Path.home())
+    if home:
+        candidates.append(os.path.join(home, "OneDrive", "MARKETING", "01_PRODUTOS"))
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        resolved = os.path.abspath(candidate)
+        if os.path.isdir(resolved):
+            return resolved
+    return None
+
+
+def _extract_four_digit_code(filename: str) -> str | None:
+    stem = Path(filename or "").stem
+    matches = [m.group("code") for m in FOUR_DIGIT_CODE_PATTERN.finditer(stem)]
+    return matches[0] if matches else None
+
+
+def _extract_four_digit_codes_from_text(text: str) -> List[str]:
+    return [m.group("code") for m in FOUR_DIGIT_CODE_PATTERN.finditer(str(text or ""))]
+
+
+def _normalize_stock_search_text(text: str) -> str:
+    normalized = _normalize_name_for_match(text)
+    normalized = re.sub(r"[^a-z0-9\s\-_/]", " ", normalized)
+    normalized = re.sub(r"[\-_/]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _stock_search_tokens(text: str) -> set[str]:
+    normalized = _normalize_stock_search_text(text)
+    return {
+        token
+        for token in normalized.split()
+        if len(token) >= 4 and token not in DESCRIPTION_TOKEN_STOPWORDS
+    }
+
+
+def _stock_model_tokens(text: str) -> set[str]:
+    normalized = _normalize_name_for_match(text)
+    normalized = re.sub(r"[^a-z0-9\s\-_]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return {
+        match.group(0)
+        for match in DESCRIPTION_MODEL_TOKEN_PATTERN.finditer(normalized)
+        if len(match.group(0)) >= 4
+    }
+
+
+def _build_stock_description_profiles(
+    description_by_code: Dict[str, List[str]] | None,
+    allowed_codes: set[str] | None,
+) -> tuple[Dict[str, Dict[str, set[str]]], Dict[str, set[str]], Dict[str, set[str]]]:
+    if not description_by_code:
+        return {}, {}, {}
+
+    profiles: Dict[str, Dict[str, set[str]]] = {}
+    token_to_codes: Dict[str, set[str]] = {}
+    model_to_codes: Dict[str, set[str]] = {}
+
+    for code, descriptions in description_by_code.items():
+        normalized_code = str(code or "").strip()
+        if not re.fullmatch(r"\d{4}", normalized_code):
+            continue
+        if allowed_codes is not None and normalized_code not in allowed_codes:
+            continue
+
+        values = descriptions if isinstance(descriptions, list) else [descriptions]
+        token_set: set[str] = set()
+        model_set: set[str] = set()
+        for value in values:
+            token_set.update(_stock_search_tokens(str(value or "")))
+            model_set.update(_stock_model_tokens(str(value or "")))
+
+        if not token_set and not model_set:
+            continue
+
+        profiles[normalized_code] = {"tokens": token_set, "models": model_set}
+
+        for token in token_set:
+            if len(token) < 5:
+                continue
+            token_to_codes.setdefault(token, set()).add(normalized_code)
+        for model in model_set:
+            model_to_codes.setdefault(model, set()).add(normalized_code)
+
+    return profiles, token_to_codes, model_to_codes
+
+
+def _match_stock_code_by_description(
+    search_text: str,
+    allowed_codes: set[str] | None,
+    profiles: Dict[str, Dict[str, set[str]]],
+    token_to_codes: Dict[str, set[str]],
+    model_to_codes: Dict[str, set[str]],
+) -> str | None:
+    if not profiles:
+        return None
+
+    text_tokens = _stock_search_tokens(search_text)
+    text_models = _stock_model_tokens(search_text)
+    if not text_tokens and not text_models:
+        return None
+
+    candidates: set[str] = set()
+    for model in text_models:
+        candidates.update(model_to_codes.get(model, set()))
+
+    if not candidates:
+        for token in text_tokens:
+            candidates.update(token_to_codes.get(token, set()))
+
+    if allowed_codes is not None:
+        candidates = {code for code in candidates if code in allowed_codes}
+    if not candidates:
+        return None
+
+    best_code = None
+    best_score = 0
+    tie = False
+    for code in candidates:
+        profile = profiles.get(code)
+        if not profile:
+            continue
+        model_hits = len(text_models & profile.get("models", set()))
+        token_hits = len(text_tokens & profile.get("tokens", set()))
+        score = (model_hits * 3) + token_hits
+        if model_hits == 0 and token_hits < 3:
+            continue
+        if score > best_score:
+            best_code = code
+            best_score = score
+            tie = False
+        elif score == best_score and score > 0:
+            tie = True
+
+    if not best_code or tie:
+        return None
+    if best_score < 4:
+        return None
+    return best_code
+
+
+def _scan_stock_photo_index(
+    root: str,
+    allowed_codes: set[str] | None = None,
+    description_by_code: Dict[str, List[str]] | None = None,
+) -> Dict[str, Dict]:
+    index: Dict[str, Dict] = {}
+    normalized_allowed = (
+        {str(code) for code in allowed_codes if re.fullmatch(r"\d{4}", str(code))}
+        if allowed_codes
+        else None
+    )
+    profiles, token_to_codes, model_to_codes = _build_stock_description_profiles(
+        description_by_code=description_by_code,
+        allowed_codes=normalized_allowed,
+    )
+
+    for dirpath, _, filenames in os.walk(root):
+        for filename in filenames:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in STOCK_PHOTO_EXTENSIONS:
+                continue
+
+            full_path = os.path.join(dirpath, filename)
+            rel_path = os.path.relpath(full_path, root)
+            search_text = f"{rel_path} {filename}"
+
+            code = _extract_four_digit_code(filename)
+            if code and normalized_allowed is not None and code not in normalized_allowed:
+                code = None
+
+            if not code:
+                for candidate in _extract_four_digit_codes_from_text(rel_path):
+                    if normalized_allowed is None or candidate in normalized_allowed:
+                        code = candidate
+                        break
+
+            if not code:
+                code = _match_stock_code_by_description(
+                    search_text=search_text,
+                    allowed_codes=normalized_allowed,
+                    profiles=profiles,
+                    token_to_codes=token_to_codes,
+                    model_to_codes=model_to_codes,
+                )
+            if not code:
+                continue
+
+            record = index.setdefault(
+                code,
+                {
+                    "code": code,
+                    "name": f"Produto {code}",
+                    "category": "Sem categoria",
+                    "files": [],
+                    "variants": {"white_background": None, "ambient": None, "measures": None},
+                },
+            )
+            file_info = {"name": filename, "full_path": full_path, "rel_path": rel_path}
+            record["files"].append(file_info)
+
+            variant = _classify_variant(filename)
+            if variant in record["variants"] and record["variants"][variant] is None:
+                record["variants"][variant] = file_info
+
+    for code, record in index.items():
+        record["files"].sort(key=lambda item: _local_file_sort_key(item, code))
+        chosen = set()
+
+        white = record["variants"]["white_background"]
+        if white is None and record["files"]:
+            white = record["files"][0]
+            record["variants"]["white_background"] = white
+        if white:
+            chosen.add(white["rel_path"])
+
+        ambient = record["variants"]["ambient"]
+        if ambient:
+            chosen.add(ambient["rel_path"])
+        else:
+            fallback = _pick_distinct_fallback(record["files"], chosen)
+            if fallback:
+                record["variants"]["ambient"] = fallback
+                chosen.add(fallback["rel_path"])
+
+        measures = record["variants"]["measures"]
+        if not measures:
+            fallback = _pick_distinct_fallback(record["files"], chosen)
+            if fallback:
+                record["variants"]["measures"] = fallback
+
+    return index
+
+
+def _get_stock_photo_index(
+    allowed_codes: set[str] | None = None,
+    description_by_code: Dict[str, List[str]] | None = None,
+) -> Dict[str, Dict]:
+    root = _resolve_stock_photos_root()
+    if not root:
+        return {}
+    return _scan_stock_photo_index(
+        root,
+        allowed_codes=allowed_codes,
+        description_by_code=description_by_code,
+    )
+
+
+def _enrich_stock_products_with_photos(products: List[Dict]) -> List[Dict]:
+    codes = {
+        str(item.get("Codigo", "")).strip()
+        for item in products
+        if re.fullmatch(r"\d{4}", str(item.get("Codigo", "")).strip())
+    }
+    description_by_code: Dict[str, List[str]] = {}
+    for item in products:
+        code = str(item.get("Codigo", "")).strip()
+        if not re.fullmatch(r"\d{4}", code):
+            continue
+        description = str(item.get("Nome") or item.get("Descricao") or "").strip()
+        if not description:
+            continue
+        description_by_code.setdefault(code, []).append(description)
+
+    photo_index = _get_stock_photo_index(
+        codes,
+        description_by_code=description_by_code,
+    )
+    if not photo_index:
+        return products
+
+    enriched: List[Dict] = []
+    for item in products:
+        code = str(item.get("Codigo", "")).strip()
+        record = photo_index.get(code)
+        if not record:
+            enriched.append(item)
+            continue
+
+        merged = dict(item)
+        variants = record.get("variants", {})
+        white = variants.get("white_background")
+        ambient = variants.get("ambient")
+        measures = variants.get("measures")
+
+        white_url = _asset_url(white["rel_path"]) if white else merged.get("URLFoto", "")
+        ambient_url = _asset_url(ambient["rel_path"]) if ambient else merged.get("FotoAmbient", "")
+        measures_url = _asset_url(measures["rel_path"]) if measures else merged.get("FotoMedidas", "")
+
+        merged["URLFoto"] = white_url
+        merged["FotoBranco"] = white_url
+        merged["FotoAmbient"] = ambient_url
+        merged["FotoMedidas"] = measures_url
+        enriched.append(merged)
+
+    return enriched
+
+
+def _get_stock_photo_record_for_code(code: str) -> Dict | None:
+    normalized_code = str(code or "").strip()
+    if not re.fullmatch(r"\d{4}", normalized_code):
+        return None
+    description_by_code: Dict[str, List[str]] = {}
+    for item in _load_products_from_available_stock_report():
+        candidate_code = str(item.get("Codigo", "")).strip()
+        if candidate_code != normalized_code:
+            continue
+        description = str(item.get("Nome") or item.get("Descricao") or "").strip()
+        if not description:
+            continue
+        description_by_code.setdefault(candidate_code, []).append(description)
+
+    return _get_stock_photo_index(
+        {normalized_code},
+        description_by_code=description_by_code,
+    ).get(normalized_code)
+
+
+def _load_products_from_stock_report(report_path: str) -> List[Dict]:
+    if not report_path or not os.path.isfile(report_path):
+        return []
+
+    try:
+        from openpyxl import load_workbook
+    except Exception as exc:
+        print(f"Unable to import openpyxl for stock report: {exc}")
+        return []
+
+    try:
+        workbook = load_workbook(report_path, read_only=True, data_only=True)
+    except Exception as exc:
+        print(f"Failed to open stock report '{report_path}': {exc}")
+        return []
+
+    try:
+        if STOCK_REPORT_SHEET_NAME not in workbook.sheetnames:
+            return []
+
+        worksheet = workbook[STOCK_REPORT_SHEET_NAME]
+        rows: List[tuple[str, int, Dict]] = []
+
+        for row_number, row in enumerate(
+            worksheet.iter_rows(min_row=2, values_only=True),
+            start=2,
+        ):
+            raw_code = row[1] if len(row) > 1 else None
+            code = _normalize_stock_code(raw_code)
+            if not code:
+                continue
+
+            raw_description = row[2] if len(row) > 2 else ""
+            description = re.sub(r"\s+", " ", str(raw_description or "")).strip()
+            if not description:
+                description = f"Produto {code}"
+
+            category = _canonical_category("", description)
+            cover_url, thumb_url = _placeholder_urls_for_code(code)
+            rows.append(
+                (
+                    code,
+                    row_number,
+                    {
+                        "Codigo": code,
+                        "Nome": description,
+                        "Descricao": description,
+                        "Categoria": category,
+                        "URLFoto": cover_url,
+                        "Especificacoes": "",
+                        "FotoBranco": thumb_url,
+                        "FotoAmbient": thumb_url,
+                        "FotoMedidas": thumb_url,
+                    },
+                )
+            )
+
+        rows.sort(key=lambda item: (_code_sort_key(item[0]), item[1]))
+        return [item[2] for item in rows]
+    finally:
+        workbook.close()
+
+
+def _load_products_from_available_stock_report() -> List[Dict]:
+    for candidate in _candidate_stock_report_paths():
+        loaded = _load_products_from_stock_report(candidate)
+        if loaded:
+            return loaded
+    return []
+
+
 def _load_cadastro_records(path_override: str | None = None) -> Dict[str, Dict[str, str]]:
-    # Runtime catalog uses default roots (path_override=None). For tests and
-    # ad-hoc calls with overrides, keep source data predictable unless an
-    # explicit cadastro path is configured.
+    # O catalogo em execucao usa raizes padrao (path_override=None). Para testes e
+    # chamadas ad-hoc com override, os dados de origem ficam previsiveis, exceto
+    # quando um caminho explicito de cadastro estiver configurado.
     cadastro_path = os.getenv("CATALOG_CADASTRO_HTML")
     if path_override is not None and not cadastro_path:
         return {}
@@ -617,12 +1115,18 @@ def _load_cadastro_records(path_override: str | None = None) -> Dict[str, Dict[s
 
 
 def list_local_products(path_override: str | None = None) -> List[Dict]:
+    from .erp_catalog import merge_products_with_erp, sort_products_by_category
+
     index = _get_local_index(path_override)
+    if not index and path_override is None:
+        stock_products = _load_products_from_available_stock_report()
+        if stock_products:
+            enriched_stock_products = _enrich_stock_products_with_photos(stock_products)
+            return sort_products_by_category(merge_products_with_erp(enriched_stock_products))
+
     cadastro_records = _load_cadastro_records(path_override)
     products: List[Dict] = []
-    for code, record in sorted(
-        index.items(), key=lambda item: (item[1].get("category", ""), item[0])
-    ):
+    for code, record in sorted(index.items(), key=lambda item: _code_sort_key(item[0])):
         variants = record.get("variants", {})
         white = variants.get("white_background")
         ambient = variants.get("ambient")
@@ -638,7 +1142,7 @@ def list_local_products(path_override: str | None = None) -> List[Dict]:
         merged_specs = str(cadastro.get("specs") or "").strip()
         cadastro_category = _normalize_category_label(str(cadastro.get("category") or ""))
         if cadastro_category:
-            # Keep categoria exactly as defined in CADASTRO.html (coluna A).
+            # Mantem categoria exatamente como definida no CADASTRO.html (coluna A).
             merged_category = cadastro_category
         else:
             merged_category_source = _normalize_category_label(
@@ -659,11 +1163,13 @@ def list_local_products(path_override: str | None = None) -> List[Dict]:
                 "FotoMedidas": measures_url,
             }
         )
-    return products
+    return sort_products_by_category(merge_products_with_erp(products))
 
 
 def categorize_local_photos(code: str, path_override: str | None = None) -> Dict[str, str | None]:
     record = _get_local_index(path_override).get(str(code))
+    if not record:
+        record = _get_stock_photo_record_for_code(str(code))
     if not record:
         return {"white_background": None, "ambient": None, "measures": None}
     variants = record.get("variants", {})
@@ -678,6 +1184,8 @@ def categorize_local_photos(code: str, path_override: str | None = None) -> Dict
 
 def find_local_images_for_code(code: str, path_override: str | None = None) -> List[Dict]:
     record = _get_local_index(path_override).get(str(code))
+    if not record:
+        record = _get_stock_photo_record_for_code(str(code))
     if not record:
         return []
     ordered_files = sorted(
@@ -698,6 +1206,9 @@ def find_local_images_for_code(code: str, path_override: str | None = None) -> L
 
 def resolve_local_asset_path(rel_path: str, path_override: str | None = None) -> str | None:
     roots = _existing_local_roots(path_override)
+    stock_root = _resolve_stock_photos_root(path_override)
+    if stock_root and stock_root.lower() not in {root.lower() for root in roots}:
+        roots = [stock_root, *roots]
     if not roots or not rel_path:
         return None
 

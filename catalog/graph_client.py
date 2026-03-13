@@ -12,8 +12,8 @@ def _get_headers(scopes: List[str] = None) -> Dict[str, str]:
 
 
 def get_share_info(share_url: str) -> Dict[str, Any]:
-    """Return share information for a shared link (driveItem metadata)."""
-    # share_url expected full 1drv.ms link
+    """Retorna informacoes de compartilhamento para um link (metadata driveItem)."""
+    # share_url deve ser o link completo 1drv.ms.
     from .onedrive import _encode_share_url
 
     share_id = _encode_share_url(share_url)
@@ -23,7 +23,7 @@ def get_share_info(share_url: str) -> Dict[str, Any]:
 
 
 def list_children(drive_id: str, item_id: str) -> List[Dict[str, Any]]:
-    """List direct children of a drive item."""
+    """Lista os filhos diretos de um item no drive."""
     resp = requests.get(
         f"{BASE_URL}/drives/{drive_id}/items/{item_id}/children",
         headers=_get_headers(),
