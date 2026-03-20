@@ -61,6 +61,8 @@ Config geral:
 - `CATALOG_PORT` (padrao: `8000`)
 - `CATALOG_CORS_ALLOW_ORIGINS` (csv, padrao: `*`)
 - `CATALOG_CORS_ALLOW_CREDENTIALS` (padrao: `true`)
+- `CATALOG_LOG_LEVEL` (opcional, padrao: `INFO`)
+- `CATALOG_LOG_FORMAT` (opcional, formato padrao com timestamp, nivel e logger)
 
 Frontend (Vite):
 - `VITE_API_BASES` (csv; padrao: `,http://127.0.0.1:8000,http://127.0.0.1:5000`)
@@ -69,11 +71,17 @@ Frontend (Vite):
 
 Dados locais:
 - `CATALOG_LOCAL_PRODUCTS_PATH` (opcional, caminho explicito da pasta de produtos)
+- `CATALOG_LOCAL_PRODUCTS_HOME_FALLBACK` (opcional, padrao: `true`; controla fallback automatico para `~/OneDrive`)
 - `CATALOG_CADASTRO_HTML` (opcional, caminho explicito do `CADASTRO.html`)
 - `CATALOG_ERP_JSON_PATH` (opcional, caminho do arquivo JSON espelho do ERP)
 - `CATALOG_ERP_INBOX_DIR` (opcional, pasta para armazenar arquivos recebidos em `/catalog/erp/upload`)
 - `CATALOG_ERP_SOURCE_DIRS` (opcional, lista CSV de pastas adicionais para descoberta automatica de JSON)
+- `CATALOG_ERP_AUTO_DISCOVERY` (opcional, padrao: `true`; quando `false`, desabilita a descoberta automatica de JSON ERP fora do caminho configurado)
 - `CATALOG_ERP_STRICT_MODE` (opcional, padrao: `true`; quando ativo, o catalogo exibe somente codigos presentes no JSON ERP atual)
+- `CATALOG_STOCK_REPORT_PATH` (opcional, caminho explicito de uma planilha `POSICAO_ESTOQUE`)
+- `CATALOG_STOCK_REPORT_AUTO_DISCOVERY` (opcional, padrao: `true`; quando `false`, nao procura planilhas automaticamente em `reports/`)
+- `CATALOG_STOCK_PHOTOS_ROOT` (opcional, caminho explicito da raiz de fotos do estoque)
+- `CATALOG_STOCK_PHOTOS_HOME_FALLBACK` (opcional, padrao: `true`; controla fallback automatico para `~/OneDrive/MARKETING/01_PRODUTOS`)
   - Se nao informar, o backend tenta detectar automaticamente arquivos como `erp*.json` ou `pcprodut*.json` na raiz do projeto, em `reports/`, em `reports/erp_inbox` e em `catalog/json/`.
   - Se `CATALOG_ERP_JSON_PATH` estiver configurado mas o arquivo nao existir, o backend faz fallback automatico para essa descoberta.
 

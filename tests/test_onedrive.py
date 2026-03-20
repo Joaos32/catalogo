@@ -276,6 +276,51 @@ def test_stock_report_matches_photo_by_description(monkeypatch, tmp_path):
     assert images[0]["url"].startswith("/catalog/local/asset?path=")
 
 
+def test_local_products_enriches_erp_only_items_with_stock_photos(monkeypatch, tmp_path):
+    from openpyxl import Workbook
+
+    one_drive_root = tmp_path / "OneDrive"
+    photos_root = one_drive_root / "FOTOS_PRODUTOS"
+    photos_root.mkdir(parents=True)
+    (photos_root / "5989 - ABAJUR BASE.jpg").write_bytes(b"img")
+
+    stock_report = tmp_path / "stock.xlsx"
+    stock_photos = tmp_path / "stock-photos"
+    stock_photos.mkdir(parents=True)
+    (stock_photos / "1181 - FITA LED.png").write_bytes(b"img")
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "POSICAO_ESTOQUE"
+    worksheet.append(["FILIAL", "CODIGO", "DESCRICAO", "EMB"])
+    worksheet.append([2, 1181, "FITA LED 2835 3000K 12V 5M", "UND"])
+    workbook.save(stock_report)
+    workbook.close()
+
+    monkeypatch.setenv("CATALOG_LOCAL_PRODUCTS_PATH", "")
+    monkeypatch.setenv("OneDrive", str(one_drive_root))
+    monkeypatch.setenv("CATALOG_STOCK_REPORT_PATH", str(stock_report))
+    monkeypatch.setenv("CATALOG_STOCK_PHOTOS_ROOT", str(stock_photos))
+    monkeypatch.setattr(
+        "catalog.erp_catalog.load_erp_index",
+        lambda: {
+            "1181": {
+                "Codigo": "1181",
+                "Nome": "FITA LED 2835 3000K 12V 5M",
+                "Descricao": "FITA LED 2835 3000K 12V 5M",
+                "Categoria": "FITA LED",
+            }
+        },
+    )
+
+    products = list_local_products()
+    by_code = {item["Codigo"]: item for item in products}
+
+    assert "1181" in by_code
+    assert by_code["1181"]["URLFoto"].startswith("/catalog/local/asset?path=")
+    assert by_code["1181"]["FotoBranco"].startswith("/catalog/local/asset?path=")
+
+
 def test_local_products_accept_tiff(tmp_path):
     root = tmp_path / "Catalogo"
     product_dir = root / "ARANDELAS"

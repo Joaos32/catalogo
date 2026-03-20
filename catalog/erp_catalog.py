@@ -216,6 +216,13 @@ NAME_KEYWORD_PRIORITY: List[tuple[str, set[str]]] = [
 ]
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _normalized_tokens(text: str) -> List[str]:
     normalized = re.sub(r"[^a-z0-9\s]", " ", _normalize_text(text or ""))
     normalized = re.sub(r"\s+", " ", normalized).strip()
@@ -408,6 +415,9 @@ def _resolve_json_path() -> Path:
         return target
 
     if not configured and target.is_file():
+        return target
+
+    if not _env_flag("CATALOG_ERP_AUTO_DISCOVERY", default=True):
         return target
 
     candidates: List[Path] = []

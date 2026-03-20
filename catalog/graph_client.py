@@ -2,6 +2,7 @@ import os
 from typing import Any, Dict, List
 import requests
 from .auth import get_access_token
+from .graph_catalog import encode_share_url
 
 BASE_URL = "https://graph.microsoft.com/v1.0"
 
@@ -13,10 +14,7 @@ def _get_headers(scopes: List[str] = None) -> Dict[str, str]:
 
 def get_share_info(share_url: str) -> Dict[str, Any]:
     """Retorna informacoes de compartilhamento para um link (metadata driveItem)."""
-    # share_url deve ser o link completo 1drv.ms.
-    from .onedrive import _encode_share_url
-
-    share_id = _encode_share_url(share_url)
+    share_id = encode_share_url(share_url)
     resp = requests.get(f"{BASE_URL}/shares/{share_id}/driveItem", headers=_get_headers())
     resp.raise_for_status()
     return resp.json()

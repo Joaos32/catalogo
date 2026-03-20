@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from catalog.api import register_api_routes, register_frontend_routes
-from catalog.core import load_settings
+from catalog.core import configure_logging, load_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def _configure_cors(app: FastAPI, allow_origins: list[str], allow_credentials: bool) -> None:
     try:
         from fastapi.middleware.cors import CORSMiddleware
     except Exception:
-        print("WARNING: fastapi CORS middleware not installed; cross-origin requests may fail.")
+        logger.warning("fastapi CORS middleware not installed; cross-origin requests may fail.")
         return
 
     # Navegadores rejeitam origem coringa quando credenciais estao habilitadas.
@@ -34,9 +38,10 @@ def _configure_cors(app: FastAPI, allow_origins: list[str], allow_credentials: b
 def create_app() -> FastAPI:
     # Carrega o .env antes de importar modulos que dependem do ambiente.
     load_dotenv()
+    configure_logging()
     settings = load_settings()
 
-    print(f"[startup] using python executable: {sys.executable}")
+    logger.info("Starting Catalogo API with Python executable %s", sys.executable)
 
     app = FastAPI(
         title="Catalogo API",

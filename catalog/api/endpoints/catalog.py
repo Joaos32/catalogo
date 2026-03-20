@@ -1,0 +1,42 @@
+"""Endpoints gerais de dados do catalogo."""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+
+from ..schemas import CatalogProductSchema
+from ...services import fetch_sheet_or_local_products, list_catalog_products
+
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+@router.get("/items", response_model=list[CatalogProductSchema])
+async def list_items():
+    return []
+
+
+@router.get("/sheet", response_model=list[CatalogProductSchema])
+async def sheet_data(url: str | None = None):
+    """Retorna dados JSON de uma planilha Google via parametro de consulta `url`."""
+    if not url:
+        return JSONResponse(status_code=400, content={"error": "missing url query parameter"})
+    try:
+        return fetch_sheet_or_local_products(url)
+    except Exception as exc:
+        logger.exception("Error fetching sheet data: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/local/produtos", response_model=list[CatalogProductSchema])
+async def local_products():
+    """Retorna produtos encontrados na pasta local do OneDrive."""
+    try:
+        return list_catalog_products()
+    except Exception as exc:
+        logger.exception("Error loading local products: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})

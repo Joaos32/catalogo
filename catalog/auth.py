@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import List
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -7,6 +8,7 @@ from dotenv import load_dotenv
 
 # Carrega variaveis de ambiente do .env, se existir.
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # Constantes de ambiente.
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
@@ -40,6 +42,7 @@ if os.path.exists(CACHE_FILE):
         token_cache.deserialize(open(CACHE_FILE, "r").read())
     except Exception:
         # Ignora cache corrompido.
+        logger.warning("Ignoring corrupted token cache at %s", CACHE_FILE, exc_info=True)
         token_cache = SerializableTokenCache()
 
 
