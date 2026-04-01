@@ -1,7 +1,8 @@
 import os
 import logging
+import secrets
 from typing import List
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 from msal import ConfidentialClientApplication, SerializableTokenCache
 from dotenv import load_dotenv
@@ -33,13 +34,38 @@ else:
     AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 
 SCOPES = ["Files.Read", "offline_access"]
-CACHE_FILE = os.path.join(os.getcwd(), "token_cache.bin")
+STATE_COOKIE_NAME = "catalog_oauth_state"
+
+
+def _resolve_cache_file() -> str:
+    explicit = os.getenv("CATALOG_TOKEN_CACHE_FILE", "").strip()
+    if explicit:
+        return os.path.abspath(os.path.expanduser(explicit))
+
+    app_data_root = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
+    if app_data_root:
+        return os.path.join(app_data_root, "catalogo", "token_cache.bin")
+    return os.path.join(os.path.expanduser("~"), ".catalogo", "token_cache.bin")
+
+
+def _ensure_cache_directory() -> None:
+    cache_dir = os.path.dirname(CACHE_FILE)
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+
+
+def _cache_cookie_secure() -> bool:
+    return bool(REDIRECT_URI and REDIRECT_URI.lower().startswith("https://"))
+
+
+CACHE_FILE = _resolve_cache_file()
 
 # Cache de token persistido em arquivo.
 token_cache = SerializableTokenCache()
 if os.path.exists(CACHE_FILE):
     try:
-        token_cache.deserialize(open(CACHE_FILE, "r").read())
+        with open(CACHE_FILE, "r", encoding="utf-8") as cache_handle:
+            token_cache.deserialize(cache_handle.read())
     except Exception:
         # Ignora cache corrompido.
         logger.warning("Ignoring corrupted token cache at %s", CACHE_FILE, exc_info=True)
@@ -48,8 +74,14 @@ if os.path.exists(CACHE_FILE):
 
 def _save_cache():
     if token_cache.has_state_changed:
-        with open(CACHE_FILE, "w") as f:
-            f.write(token_cache.serialize())
+        _ensure_cache_directory()
+        with open(CACHE_FILE, "w", encoding="utf-8") as cache_handle:
+            cache_handle.write(token_cache.serialize())
+        try:
+            os.chmod(CACHE_FILE, 0o600)
+        except OSError:
+            # No Windows o chmod e limitado; mantemos best-effort.
+            pass
 
 
 def _build_msal_app() -> ConfidentialClientApplication:
@@ -86,21 +118,41 @@ auth_router = APIRouter()
 
 @auth_router.get("/auth/login")
 def login():
-    app = _build_msal_app()
+    try:
+        app = _build_msal_app()
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="Azure authentication not configured") from exc
+    state = secrets.token_urlsafe(32)
     auth_url = app.get_authorization_request_url(
         scopes=SCOPES,
+        state=state,
         redirect_uri=REDIRECT_URI,
     )
-    return RedirectResponse(auth_url)
+    response = RedirectResponse(auth_url)
+    response.set_cookie(
+        key=STATE_COOKIE_NAME,
+        value=state,
+        httponly=True,
+        samesite="lax",
+        secure=_cache_cookie_secure(),
+        max_age=600,
+    )
+    return response
 
 
 @auth_router.get("/auth/callback")
-def callback(code: str = None, error: str = None):
+def callback(request: Request, code: str = None, state: str = None, error: str = None):
     if error:
         raise HTTPException(status_code=400, detail=error)
     if not code:
         raise HTTPException(status_code=400, detail="Missing code")
-    app = _build_msal_app()
+    cookie_state = request.cookies.get(STATE_COOKIE_NAME)
+    if not state or not cookie_state or not secrets.compare_digest(state, cookie_state):
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    try:
+        app = _build_msal_app()
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="Azure authentication not configured") from exc
     result = app.acquire_token_by_authorization_code(
         code,
         scopes=SCOPES,
@@ -108,6 +160,13 @@ def callback(code: str = None, error: str = None):
     )
     _save_cache()
     if "access_token" in result:
-        return JSONResponse({"success": True})
-    else:
-        raise HTTPException(status_code=400, detail=str(result))
+        response = JSONResponse({"success": True})
+        response.delete_cookie(
+            STATE_COOKIE_NAME,
+            httponly=True,
+            samesite="lax",
+            secure=_cache_cookie_secure(),
+        )
+        return response
+    logger.warning("OAuth token exchange failed: %s", result)
+    raise HTTPException(status_code=400, detail="OAuth token exchange failed")

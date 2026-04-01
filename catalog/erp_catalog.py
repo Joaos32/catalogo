@@ -223,6 +223,19 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def get_max_upload_size_bytes() -> int:
+    value = os.getenv("CATALOG_ERP_MAX_UPLOAD_BYTES", "").strip()
+    if not value:
+        return 10 * 1024 * 1024
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError("CATALOG_ERP_MAX_UPLOAD_BYTES must be an integer") from exc
+    if parsed <= 0:
+        raise ValueError("CATALOG_ERP_MAX_UPLOAD_BYTES must be positive")
+    return parsed
+
+
 def _normalized_tokens(text: str) -> List[str]:
     normalized = re.sub(r"[^a-z0-9\s]", " ", _normalize_text(text or ""))
     normalized = re.sub(r"\s+", " ", normalized).strip()
@@ -666,6 +679,8 @@ def import_erp_file(file_path: str) -> Dict[str, Any]:
 
 
 def receive_erp_file(filename: str, content: bytes) -> Dict[str, Any]:
+    if len(content) > get_max_upload_size_bytes():
+        raise ValueError("ERP upload too large")
     payload = _parse_json_bytes(content)
     safe_filename = _sanitize_json_filename(filename)
     inbox_dir = resolve_erp_inbox_dir()

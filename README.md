@@ -59,10 +59,12 @@ Se o build nao existir, a aplicacao usa fallback em `frontend/legacy`.
 Config geral:
 - `CATALOG_HOST` (padrao: `127.0.0.1`)
 - `CATALOG_PORT` (padrao: `8000`)
-- `CATALOG_CORS_ALLOW_ORIGINS` (csv, padrao: `*`)
+- `CATALOG_ENABLE_API_DOCS` (opcional, padrao: `true`; quando `false`, desabilita `/docs`, `/redoc` e `/openapi.json`)
+- `CATALOG_CORS_ALLOW_ORIGINS` (csv, padrao local seguro: `http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5000,http://localhost:5000`)
 - `CATALOG_CORS_ALLOW_CREDENTIALS` (padrao: `true`)
 - `CATALOG_LOG_LEVEL` (opcional, padrao: `INFO`)
 - `CATALOG_LOG_FORMAT` (opcional, formato padrao com timestamp, nivel e logger)
+- `CATALOG_EXPORT_MAX_REMOTE_IMAGE_BYTES` (opcional, padrao: `5242880`; limite para baixar imagens remotas em exportacoes)
 
 Frontend (Vite):
 - `VITE_API_BASES` (csv; padrao: `,http://127.0.0.1:8000,http://127.0.0.1:5000`)
@@ -75,6 +77,8 @@ Dados locais:
 - `CATALOG_CADASTRO_HTML` (opcional, caminho explicito do `CADASTRO.html`)
 - `CATALOG_ERP_JSON_PATH` (opcional, caminho do arquivo JSON espelho do ERP)
 - `CATALOG_ERP_INBOX_DIR` (opcional, pasta para armazenar arquivos recebidos em `/catalog/erp/upload`)
+- `CATALOG_ERP_ADMIN_TOKEN` (opcional; quando definido, protege `/catalog/erp/*` e exige `X-Catalog-Admin-Token` ou `Authorization: Bearer <token>`)
+- `CATALOG_ERP_MAX_UPLOAD_BYTES` (opcional, padrao: `10485760`; limite do payload em `/catalog/erp/upload`)
 - `CATALOG_ERP_SOURCE_DIRS` (opcional, lista CSV de pastas adicionais para descoberta automatica de JSON)
 - `CATALOG_ERP_AUTO_DISCOVERY` (opcional, padrao: `true`; quando `false`, desabilita a descoberta automatica de JSON ERP fora do caminho configurado)
 - `CATALOG_ERP_STRICT_MODE` (opcional, padrao: `true`; quando ativo, o catalogo exibe somente codigos presentes no JSON ERP atual)
@@ -90,6 +94,7 @@ Azure / Graph (opcional):
 - `AZURE_CLIENT_SECRET`
 - `AZURE_TENANT_ID`
 - `AZURE_REDIRECT_URI`
+- `CATALOG_TOKEN_CACHE_FILE` (opcional; sobrescreve o caminho do cache persistente de token OAuth)
 
 ## Endpoints Principais
 

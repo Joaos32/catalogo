@@ -83,40 +83,74 @@ def test_match_and_find_images(monkeypatch):
 
 
 def test_auth_endpoints(monkeypatch):
-    import os
     from fastapi.testclient import TestClient
-
-    # Define ambiente ficticio para garantir constantes de modulo, se necessario.
-    os.environ['AZURE_CLIENT_ID'] = 'id'
-    os.environ['AZURE_CLIENT_SECRET'] = 'secret'
-    os.environ['AZURE_TENANT_ID'] = 'tenant'
-    os.environ['AZURE_REDIRECT_URI'] = 'http://localhost'
 
     class DummyApp:
         def get_authorization_request_url(self, *args, **kwargs):
+            assert kwargs.get("state")
             return "https://login.microsoftonline.com/fake"
+
+        def acquire_token_by_authorization_code(self, code, scopes, redirect_uri):
+            assert code == "abc123"
+            return {"access_token": "token"}
+
     monkeypatch.setattr('catalog.auth._build_msal_app', lambda: DummyApp())
 
     # Importa app apos patch para registrar rotas normalmente.
     from app import app
 
     # Alem do roteamento, valida tambem a logica do handler.
-    from catalog.auth import login, callback
+    from catalog.auth import STATE_COOKIE_NAME, login
     from fastapi.responses import RedirectResponse
 
     resp = login()
     assert isinstance(resp, RedirectResponse)
     assert resp.headers.get('location', '').startswith('https://login.microsoftonline.com')
+    assert STATE_COOKIE_NAME in resp.headers.get("set-cookie", "")
 
-    # callback gera erro se chamado diretamente sem code; verificamos o
-    # comportamento via cliente HTTP abaixo.
-    # Garante tambem que as rotas estao registradas; o TestClient segue redirect.
     client = TestClient(app)
-    resp3 = client.get('/auth/login')
-    # Endpoint de login normalmente retorna redirect, que o TestClient segue.
-    assert resp3.status_code == 200
+    resp3 = client.get('/auth/login', follow_redirects=False)
+    assert resp3.status_code in {302, 307}
+
+    state = client.cookies.get(STATE_COOKIE_NAME)
+    assert state
+
     resp4 = client.get('/auth/callback')
     assert resp4.status_code == 400
+
+    resp5 = client.get('/auth/callback', params={'code': 'abc123', 'state': 'invalid-state'})
+    assert resp5.status_code == 400
+
+    resp6 = client.get('/auth/callback', params={'code': 'abc123', 'state': state})
+    assert resp6.status_code == 200
+    assert resp6.json() == {"success": True}
+
+
+def test_auth_callback_sanitizes_token_exchange_failure(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    class DummyApp:
+        def get_authorization_request_url(self, *args, **kwargs):
+            return "https://login.microsoftonline.com/fake"
+
+        def acquire_token_by_authorization_code(self, code, scopes, redirect_uri):
+            return {"error": "invalid_grant", "error_description": "secret-provider-detail"}
+
+    monkeypatch.setattr('catalog.auth._build_msal_app', lambda: DummyApp())
+
+    from app import app
+    from catalog.auth import STATE_COOKIE_NAME
+
+    client = TestClient(app)
+    login_response = client.get('/auth/login', follow_redirects=False)
+    assert login_response.status_code in {302, 307}
+
+    state = client.cookies.get(STATE_COOKIE_NAME)
+    assert state
+
+    callback_response = client.get('/auth/callback', params={'code': 'abc123', 'state': state})
+    assert callback_response.status_code == 400
+    assert callback_response.json() == {"detail": "OAuth token exchange failed"}
 
 
 def test_local_products_and_local_photos(tmp_path):

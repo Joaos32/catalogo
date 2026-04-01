@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from ..errors import internal_server_error_response
 from ..schemas import CatalogProductSchema
 from ...services import fetch_sheet_or_local_products, list_catalog_products
 
@@ -29,7 +30,7 @@ async def sheet_data(url: str | None = None):
         return fetch_sheet_or_local_products(url)
     except Exception as exc:
         logger.exception("Error fetching sheet data: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()
 
 
 @router.get("/local/produtos", response_model=list[CatalogProductSchema])
@@ -39,4 +40,4 @@ async def local_products():
         return list_catalog_products()
     except Exception as exc:
         logger.exception("Error loading local products: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()

@@ -5,10 +5,13 @@ from __future__ import annotations
 import csv
 from datetime import datetime, timezone
 from io import BytesIO, StringIO
+import ipaddress
 import json
 import mimetypes
+import os
 from pathlib import Path
 import re
+import socket
 import textwrap
 from typing import Any, Dict, Iterable, List, Sequence
 import unicodedata
@@ -107,6 +110,112 @@ def _slugify(value: str, fallback: str = "catalogo") -> str:
 
 def _load_products() -> List[Dict[str, Any]]:
     return onedrive.list_local_products()
+
+
+def _max_remote_image_bytes() -> int:
+    raw_value = os.getenv("CATALOG_EXPORT_MAX_REMOTE_IMAGE_BYTES", "").strip()
+    if not raw_value:
+        return 5 * 1024 * 1024
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return 5 * 1024 * 1024
+    return parsed if parsed > 0 else 5 * 1024 * 1024
+
+
+def _is_public_ip_address(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+
+def _is_permitted_remote_image_url(url: str) -> bool:
+    parsed = urlparse(url or "")
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if parsed.username or parsed.password:
+        return False
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname or hostname == "localhost" or hostname.endswith(".localhost"):
+        return False
+
+    if _is_public_ip_address(hostname):
+        return True
+
+    try:
+        resolved = socket.getaddrinfo(
+            hostname,
+            parsed.port or (443 if parsed.scheme == "https" else 80),
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror:
+        return False
+    except OSError:
+        return False
+
+    addresses = {item[4][0] for item in resolved if item and len(item) >= 5 and item[4]}
+    if not addresses:
+        return False
+    return all(_is_public_ip_address(address) for address in addresses)
+
+
+def _download_remote_image_bytes(url: str) -> tuple[bytes | None, str]:
+    if not _is_permitted_remote_image_url(url):
+        return None, ""
+
+    max_bytes = _max_remote_image_bytes()
+
+    try:
+        response = requests.get(
+            url,
+            timeout=8,
+            stream=True,
+            allow_redirects=False,
+            headers={"Accept": "image/*"},
+        )
+        response.raise_for_status()
+    except Exception:
+        return None, ""
+
+    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    if content_type and not content_type.startswith("image/"):
+        response.close()
+        return None, ""
+
+    declared_length = response.headers.get("content-length", "").strip()
+    if declared_length:
+        try:
+            if int(declared_length) > max_bytes:
+                response.close()
+                return None, ""
+        except ValueError:
+            pass
+
+    payload = bytearray()
+    try:
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            payload.extend(chunk)
+            if len(payload) > max_bytes:
+                return None, ""
+    finally:
+        response.close()
+
+    extension = Path(urlparse(url).path).suffix.lower()
+    if not extension and content_type:
+        extension = mimetypes.guess_extension(content_type) or ""
+    return bytes(payload), extension
 
 
 def _filter_products(
@@ -455,17 +564,7 @@ def _resolve_photo_bytes(url: str) -> tuple[bytes | None, str]:
     if parsed.scheme not in {"http", "https"}:
         return None, ""
 
-    try:
-        response = requests.get(url, timeout=8)
-        response.raise_for_status()
-    except Exception:
-        return None, ""
-
-    extension = Path(parsed.path).suffix.lower()
-    if not extension:
-        content_type = response.headers.get("content-type", "").split(";")[0].strip()
-        extension = mimetypes.guess_extension(content_type) or ""
-    return response.content, extension
+    return _download_remote_image_bytes(url)
 
 
 def _open_image_for_export(url: str) -> Image.Image | None:

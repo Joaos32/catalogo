@@ -7,6 +7,8 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, Response
 
+from ..errors import internal_server_error_response
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,4 +43,4 @@ async def export_catalog(
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:
         logger.exception("Error exporting catalog: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()

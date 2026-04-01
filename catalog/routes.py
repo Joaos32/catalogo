@@ -7,10 +7,12 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse, Response
 
+from catalog.api.errors import internal_server_error_response
 from catalog.api.endpoints.catalog import router as catalog_data_router
 from catalog.api.endpoints.erp import router as erp_router
 from catalog.api.endpoints.export import router as export_router
 from catalog.api.endpoints.media import router as media_router
+from catalog.local_catalog import IMG_EXTENSIONS
 
 
 router = APIRouter()
@@ -19,6 +21,7 @@ router.include_router(media_router)
 router.include_router(erp_router)
 router.include_router(export_router)
 logger = logging.getLogger(__name__)
+CONVERTIBLE_LOCAL_ASSET_EXTENSIONS = {".psd", ".heic", ".heif"}
 
 
 def _tiff_to_jpeg_bytes(asset_path: str) -> bytes | None:
@@ -61,6 +64,11 @@ async def local_asset(path: str | None = None):
         if not asset_path:
             return JSONResponse(status_code=404, content={"error": "asset not found"})
 
+        suffix = Path(asset_path).suffix.lower()
+        allowed_extensions = set(IMG_EXTENSIONS) | CONVERTIBLE_LOCAL_ASSET_EXTENSIONS
+        if suffix not in allowed_extensions:
+            return JSONResponse(status_code=403, content={"error": "unsupported asset type"})
+
         converted = _tiff_to_jpeg_bytes(asset_path)
         if converted is not None:
             return Response(content=converted, media_type="image/jpeg")
@@ -68,6 +76,6 @@ async def local_asset(path: str | None = None):
         return FileResponse(asset_path)
     except Exception as e:
         logger.exception("Error serving local asset: %s", e)
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return internal_server_error_response()
 
 

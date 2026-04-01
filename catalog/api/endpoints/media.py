@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from ..errors import internal_server_error_response
 from ..schemas import ProductImagesResponseSchema, ProductPhotosSchema
 from ...services import get_product_images_payload, get_product_photos_payload
 
@@ -24,7 +25,7 @@ async def photos(shareUrl: str | None = None, code: str | None = None):
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:
         logger.exception("Error fetching photos: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()
 
 
 @router.get("/produtos/{codigo}/imagens", response_model=ProductImagesResponseSchema)
@@ -36,4 +37,4 @@ async def product_images(codigo: str, shareUrl: str | None = None):
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:
         logger.exception("Error searching product images: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()

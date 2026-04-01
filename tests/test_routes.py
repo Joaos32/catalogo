@@ -126,12 +126,24 @@ def test_local_products_route(monkeypatch):
     assert data[0]['Codigo'] == '5989'
 
 
-def test_local_asset_route(monkeypatch):
-    monkeypatch.setattr('catalog.onedrive.resolve_local_asset_path', lambda path: __file__)
+def test_local_asset_route(monkeypatch, tmp_path):
+    asset_path = tmp_path / "asset.jpg"
+    asset_path.write_bytes(b"jpg")
+    monkeypatch.setattr('catalog.onedrive.resolve_local_asset_path', lambda path: str(asset_path))
     client = TestClient(app)
     rv = client.get('/catalog/local/asset', params={'path': 'x'})
     assert rv.status_code == 200
     assert rv.content
+
+
+def test_local_asset_route_blocks_non_image_files(monkeypatch, tmp_path):
+    asset_path = tmp_path / "asset.txt"
+    asset_path.write_text("not-an-image", encoding="utf-8")
+    monkeypatch.setattr('catalog.onedrive.resolve_local_asset_path', lambda path: str(asset_path))
+    client = TestClient(app)
+    rv = client.get('/catalog/local/asset', params={'path': 'x'})
+    assert rv.status_code == 403
+    assert rv.json()["error"] == "unsupported asset type"
 
 
 def test_local_asset_route_converts_tiff(monkeypatch):
@@ -245,6 +257,19 @@ def test_erp_upload_raw_json(monkeypatch):
         for entry in os.listdir(inbox_dir):
             os.remove(os.path.join(inbox_dir, entry))
         os.rmdir(inbox_dir)
+
+
+def test_erp_upload_rejects_large_payload(monkeypatch):
+    monkeypatch.setenv('CATALOG_ERP_MAX_UPLOAD_BYTES', '16')
+    client = TestClient(app)
+    rv = client.post(
+        '/catalog/erp/upload',
+        params={'filename': 'oversized.json'},
+        content=b'{"products":[{"codigo":"8877"}]}',
+        headers={'Content-Type': 'application/json'},
+    )
+    assert rv.status_code == 413
+    assert rv.json()['error'] == 'ERP upload too large'
 
 
 def test_erp_import_file_endpoint(monkeypatch):
@@ -384,9 +409,45 @@ def test_catalog_export_zip_includes_photos(monkeypatch):
         os.remove(photo_path)
 
 
+def test_catalog_export_zip_blocks_private_remote_photo_urls(monkeypatch):
+    monkeypatch.setattr(
+        'catalog.onedrive.list_local_products',
+        lambda: [
+            {
+                'Codigo': '9911',
+                'Nome': 'Produto Exportavel',
+                'Categoria': 'LUMINARIA',
+                'FotoBranco': 'http://127.0.0.1/private.jpg',
+            }
+        ]
+    )
+    monkeypatch.setattr('catalog.onedrive.find_local_images_for_code', lambda code: [])
+
+    client = TestClient(app)
+    rv = client.get('/catalog/export', params={'format': 'zip', 'code': '9911'})
+    assert rv.status_code == 200
+
+    with ZipFile(BytesIO(rv.content)) as archive:
+        names = archive.namelist()
+        assert not any(name.startswith('fotos/9911/') for name in names)
+        manifest = archive.read('manifesto_fotos.csv').decode('utf-8-sig')
+        assert 'http://127.0.0.1/private.jpg' in manifest
+
+
 def test_catalog_export_rejects_invalid_format(monkeypatch):
     monkeypatch.setattr('catalog.onedrive.list_local_products', lambda: [{'Codigo': '9911'}])
     client = TestClient(app)
     rv = client.get('/catalog/export', params={'format': 'xml'})
     assert rv.status_code == 400
     assert 'error' in rv.json()
+
+
+def test_internal_errors_are_sanitized(monkeypatch):
+    monkeypatch.setattr(
+        'catalog.onedrive.list_local_products',
+        lambda: (_ for _ in ()).throw(RuntimeError('secret path D:\\catalogo\\sensitive.txt'))
+    )
+    client = TestClient(app)
+    rv = client.get('/catalog/local/produtos')
+    assert rv.status_code == 500
+    assert rv.json() == {'error': 'internal server error'}

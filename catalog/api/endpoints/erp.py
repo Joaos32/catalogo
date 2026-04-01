@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Body, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import JSONResponse
 
+from ..errors import internal_server_error_response
+from ..security import require_erp_admin
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(require_erp_admin)])
 logger = logging.getLogger(__name__)
 
 
@@ -23,13 +26,24 @@ async def import_erp_products(payload: dict | list = Body(...)):
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:
         logger.exception("Error importing ERP payload: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()
 
 
 @router.post("/erp/upload")
 async def upload_erp_file(request: Request, filename: str | None = None):
     """Recebe um arquivo JSON bruto no corpo da requisicao e importa para o catalogo."""
     try:
+        from ...erp_catalog import get_max_upload_size_bytes, receive_erp_file
+
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                declared_length = int(content_length)
+            except ValueError:
+                declared_length = 0
+            if declared_length > get_max_upload_size_bytes():
+                return JSONResponse(status_code=413, content={"error": "ERP upload too large"})
+
         body = await request.body()
         if not body:
             return JSONResponse(status_code=400, content={"error": "empty request body"})
@@ -41,14 +55,12 @@ async def upload_erp_file(request: Request, filename: str | None = None):
             or "erp_upload.json"
         )
 
-        from ...erp_catalog import receive_erp_file
-
         return receive_erp_file(filename=selected_name, content=body)
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:
         logger.exception("Error uploading ERP file: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()
 
 
 @router.post("/erp/import-file")
@@ -66,7 +78,7 @@ async def import_erp_file_from_backend(payload: dict = Body(...)):
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:
         logger.exception("Error importing ERP file from backend: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()
 
 
 @router.get("/erp/files")
@@ -78,7 +90,7 @@ async def list_backend_erp_files():
         return {"files": list_erp_files()}
     except Exception as exc:
         logger.exception("Error listing ERP files: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()
 
 
 @router.get("/erp/status")
@@ -90,4 +102,4 @@ async def erp_status():
         return get_erp_status()
     except Exception as exc:
         logger.exception("Error reading ERP status: %s", exc)
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return internal_server_error_response()

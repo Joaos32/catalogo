@@ -15,6 +15,31 @@ def _parse_csv_env(value: str | None, default: list[str]) -> list[str]:
     return values or default
 
 
+def _parse_bool_env(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _optional_env(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _default_cors_origins() -> list[str]:
+    """Origens locais seguras para desenvolvimento por padrao."""
+    return [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:5000",
+        "http://localhost:5000",
+    ]
+
+
 def _resolve_frontend_paths(base_dir: Path) -> tuple[Path, Path]:
     frontend_root = base_dir / "frontend"
 
@@ -37,8 +62,10 @@ class Settings:
     frontend_index: Path
     host: str
     port: int
+    api_docs_enabled: bool
     cors_allow_origins: list[str]
     cors_allow_credentials: bool
+    erp_admin_token: str | None
 
 
 def load_settings() -> Settings:
@@ -50,10 +77,14 @@ def load_settings() -> Settings:
         frontend_index=frontend_index,
         host=os.getenv("CATALOG_HOST", "127.0.0.1"),
         port=int(os.getenv("CATALOG_PORT", "8000")),
+        api_docs_enabled=_parse_bool_env(os.getenv("CATALOG_ENABLE_API_DOCS"), default=True),
         cors_allow_origins=_parse_csv_env(
             os.getenv("CATALOG_CORS_ALLOW_ORIGINS"),
-            default=["*"],
+            default=_default_cors_origins(),
         ),
-        cors_allow_credentials=os.getenv("CATALOG_CORS_ALLOW_CREDENTIALS", "true").lower()
-        not in {"0", "false", "no"},
+        cors_allow_credentials=_parse_bool_env(
+            os.getenv("CATALOG_CORS_ALLOW_CREDENTIALS"),
+            default=True,
+        ),
+        erp_admin_token=_optional_env(os.getenv("CATALOG_ERP_ADMIN_TOKEN")),
     )
